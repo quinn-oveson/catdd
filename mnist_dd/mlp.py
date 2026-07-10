@@ -1,17 +1,15 @@
 import torch.nn as nn
+import config
 
-# CONSTANTS
-# d = size of input (number of pixels in one MNIST image)
-d = 784
-# K = number of classes (number of possible digits)
-K = 10
+D = config.D
+K = config.K
 
 class MLP(nn.Module):
     def __init__(self, H):
         super().__init__()
         self.flatten = nn.Flatten()
         # H is the width of the hidden layer
-        self.hidden = nn.Linear(d, H)
+        self.hidden = nn.Linear(D, H)
         self.relu = nn.ReLU()
         self.output = nn.Linear(H, K)
     
