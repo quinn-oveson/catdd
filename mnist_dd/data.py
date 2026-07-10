@@ -24,6 +24,3 @@ def load_mnist_subset(n=N_TRAIN, seed=SEED):
 
     X_test = X_test.reshape(X_test.shape[0], -1)
     return X_train, y_train, X_test, y_test
-
-if __name__ == "__main__":
-    X_train, y_train, X_test, y_test = load_mnist_subset()
