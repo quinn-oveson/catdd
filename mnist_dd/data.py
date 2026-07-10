@@ -1,9 +1,7 @@
 import torch
 from torchvision import datasets, transforms
-import config
-
-N_TRAIN = config.N_TRAIN
-SEED = config.SEED
+from config import N_TRAIN, SEED, K
+import torch.nn.functional as F
 
 def load_mnist_subset(n=N_TRAIN, seed=SEED):
     transform = transforms.ToTensor()
@@ -24,3 +22,6 @@ def load_mnist_subset(n=N_TRAIN, seed=SEED):
 
     X_test = X_test.reshape(X_test.shape[0], -1)
     return X_train, y_train, X_test, y_test
+
+def onehot(y):
+    return F.one_hot(y, num_classes=K).float()
