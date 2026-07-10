@@ -16,3 +16,7 @@ MAX_EPOCHS = 6000
 DECAY_INTERVAL = 500
 # decay factor for learning rate (from Belkin)
 GAMMA = 0.9
+# these are guessed from the graph
+H_VALS = [4.,    5.,    8.,   13.,   18.,   23.,   25.,   28.,   30.,
+         33.,   35.,   38.,   40.,   43.,   45.,   48.,   50.,   54.,
+         58.,   63.,   75.,  101.,  201.,  314., 1006.]
