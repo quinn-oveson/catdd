@@ -2,28 +2,27 @@ import torch.nn as nn
 import torch
 import config
 import numpy as np
+from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA
 
-LR = config.LR
-MOMENTUM = config.MOMENTUM
-MAX_EPOCHS = config.MAX_EPOCHS
-DECAY_INTERVAL = config.DECAY_INTERVAL
-GAMMA = config.GAMMA
 
-def run_epoch(model, X, y_onehot, criterion, optimizer, batch_size = None):
+def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, batch_size = None):
     optimizer.zero_grad()
-    loss = criterion(model(X), y_onehot)
+    outputs = model(X)
+    loss = criterion(outputs, y_onehot)
     loss.backward()
     optimizer.step()
-    return loss.item()
+    preds = outputs.argmax(dim=1)
+    train_error = (preds != y_labels).float().mean().item()
+    return loss.item(), train_error
 
-def train_model(model, X, y_onehot, is_underparam):
+def train_model(model, X, y_onehot, y_labels, is_underparam):
     criterion = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = []
     for epoch in range(MAX_EPOCHS):
-        train_error = run_epoch(model, X, y_onehot, criterion, optimizer)
-        losses.append(train_error)
+        mse_loss, train_error = run_epoch(model, X, y_onehot, y_labels, criterion, optimizer)
+        losses.append(mse_loss)
         if is_underparam:
             scheduler.step()
             if train_error == 0:
