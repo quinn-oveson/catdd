@@ -19,6 +19,8 @@ train_zeroone = np.zeros((N_TRIALS, len(H_VALS)))
 test_zeroone = np.zeros((N_TRIALS, len(H_VALS)))
 train_MSE = np.zeros((N_TRIALS, len(H_VALS)))
 test_MSE = np.zeros((N_TRIALS, len(H_VALS)))
+train_CE = np.zeros((N_TRIALS, len(H_VALS)))
+test_CE = np.zeros((N_TRIALS, len(H_VALS)))
 
 for i in range(N_TRIALS):
     seed = SEEDS[i]
@@ -41,8 +43,8 @@ for i in range(N_TRIALS):
             print(f"H={H}: new units std ≈ {model.hidden.weight[H_prev:].std().item():.4f}")  # should be ~0.1
 
         train_model(model, X_train, y_train_onehot, y_train, is_underparam)
-        train_zeroone[i, j], train_MSE[i, j] = evaluate(model, X_train, y_train_onehot, y_train)
-        test_zeroone[i, j], test_MSE[i, j] = evaluate(model, X_test, y_test_onehot, y_test)
+        train_zeroone[i, j], train_MSE[i, j], train_CE[i, j] = evaluate(model, X_train, y_train_onehot, y_train)
+        test_zeroone[i, j], test_MSE[i, j], test_CE[i, j] = evaluate(model, X_test, y_test_onehot, y_test)
         smaller_model = model
         H_prev = H
 
@@ -50,21 +52,25 @@ avg_train_zeroone = np.mean(train_zeroone, axis=0)
 avg_test_zeroone = np.mean(test_zeroone, axis=0)
 avg_train_MSE = np.mean(train_MSE, axis=0)
 avg_test_MSE = np.mean(test_MSE, axis=0)
+avg_train_CE = np.mean(train_CE, axis=0)
+avg_test_CE = np.mean(test_CE, axis=0)
 
 if __name__ == "__main__":
-    print(avg_train_zeroone, avg_test_zeroone, avg_train_MSE, avg_test_MSE)
+    print(avg_train_zeroone, avg_test_zeroone, avg_train_MSE, avg_test_MSE, avg_train_CE, avg_test_CE)
 
     results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
     os.makedirs(results_dir, exist_ok=True)
-    results_path = os.path.join(results_dir, "sweep_results.csv")
+    results_path = os.path.join(results_dir, "sweep_results_ce.csv")
 
-    # rows = H values, columns = the 4 averaged error metrics
+    # rows = H values, columns = the 6 averaged error metrics
     results_df = pd.DataFrame(
         {
             "train_zeroone": avg_train_zeroone,
             "test_zeroone": avg_test_zeroone,
             "train_MSE": avg_train_MSE,
             "test_MSE": avg_test_MSE,
+            "train_CE": avg_train_CE,
+            "test_CE": avg_test_CE,
         },
         index=pd.Index([int(h) for h in H_VALS], name="H"),
     )

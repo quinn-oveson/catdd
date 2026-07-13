@@ -17,7 +17,7 @@ def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=
     return loss.detach(), train_error
 
 def train_model(model, X, y_onehot, y_labels, is_underparam):
-    criterion = nn.MSELoss()
+    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = torch.empty(MAX_EPOCHS, device=X.device)
@@ -43,5 +43,6 @@ def evaluate(model, X, y_onehot, y_labels):
         preds = outputs.argmax(dim=1)
         zero_one = (preds != y_labels).float().mean()
         mse = ((outputs - y_onehot) ** 2).mean()
-    # return zero-one loss and MSE loss
-    return zero_one.item(), mse.item()
+        ce = nn.functional.cross_entropy(outputs, y_onehot)
+    # return zero-one loss, MSE loss, and cross-entropy loss
+    return zero_one.item(), mse.item(), ce.item()

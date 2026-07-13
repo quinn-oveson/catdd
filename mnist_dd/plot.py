@@ -1,0 +1,94 @@
+from matplotlib import pyplot as plt
+import pandas as pd
+from utils import num_params
+from config import N_TRAIN, K
+from matplotlib.ticker import ScalarFormatter
+
+sweep_df = pd.read_csv('./results/sweep_results_mse.csv')
+sweep_df["params"] = num_params(sweep_df["H"])
+sweep_df["params"] = num_params(sweep_df["H"])
+
+plt.subplot(211)
+plt.title("Performance of Fully-connected NNs on MNIST (MSE Loss)")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_zeroone']*100, marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_zeroone']*100, label="Train", color="tab:orange")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks)
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Zero-one loss (%)")
+plt.legend()
+plt.tight_layout()
+plt.subplot(212)
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_MSE'], marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_MSE'], label="Train", color="tab:orange")
+plt.xlabel(r"Number of parameters/weights ($\times10^3$)")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks, [str(t) for t in ticks])
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Squared loss")
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/full_batch_sweep_mse.jpg')
+plt.clf()
+
+sweep_df = pd.read_csv('./results/sweep_results_ce.csv')
+sweep_df["params"] = num_params(sweep_df["H"])
+sweep_df["params"] = num_params(sweep_df["H"])
+
+plt.subplot(211)
+plt.title("Performance of Fully-connected NNs on MNIST (CE Loss)")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_zeroone']*100, marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_zeroone']*100, label="Train", color="tab:orange")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks)
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Zero-one loss (%)")
+plt.legend()
+plt.tight_layout()
+plt.subplot(212)
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_MSE'], marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_MSE'], label="Train", color="tab:orange")
+plt.xlabel(r"Number of parameters/weights ($\times10^3$)")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks, [str(t) for t in ticks])
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Squared loss")
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/full_batch_sweep_ce.jpg')
+
+
+plt.subplot(211)
+plt.title("Performance of Fully-connected NNs on MNIST (CE Loss)")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_zeroone']*100, marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_zeroone']*100, label="Train", color="tab:orange")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks)
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Zero-one loss (%)")
+plt.legend()
+plt.tight_layout()
+plt.subplot(212)
+plt.semilogx(sweep_df['params']/1e3, sweep_df['test_CE'], marker='D', ms=4, label="Test", color="tab:blue")
+plt.semilogx(sweep_df['params']/1e3, sweep_df['train_CE'], label="Train", color="tab:orange")
+plt.xlabel(r"Number of parameters/weights ($\times10^3$)")
+plt.gca().xaxis.set_major_formatter(ScalarFormatter())
+plt.ticklabel_format(style='plain', axis='x')
+ticks = [3, 10, 40, 100, 300, 800]
+plt.xticks(ticks, [str(t) for t in ticks])
+plt.axvline([N_TRAIN*K/1e3], color='black', linestyle='--', alpha=0.5)
+plt.ylabel("Cross-Entropy loss")
+plt.legend()
+plt.tight_layout()
+plt.savefig('./plots/full_batch_sweep_ce_no_mse.jpg')
+
