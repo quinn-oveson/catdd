@@ -1,37 +1,48 @@
 import torch.nn as nn
 import torch
-import config
-import numpy as np
+from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL
 
-LR = config.LR
-MOMENTUM = config.MOMENTUM
-MAX_EPOCHS = config.MAX_EPOCHS
-DECAY_INTERVAL = config.DECAY_INTERVAL
-GAMMA = config.GAMMA
 
-def run_epoch(model, X, y_onehot, criterion, optimizer, batch_size = None):
+def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=False):
     optimizer.zero_grad()
-    loss = criterion(model(X), y_onehot)
+    outputs = model(X)
+    loss = criterion(outputs, y_onehot)
     loss.backward()
     optimizer.step()
-    return loss.item()
+    train_error = None
+    if compute_error:
+        with torch.no_grad():
+            preds = outputs.argmax(dim=1)
+            train_error = (preds != y_labels).float().mean()
+    return loss.detach(), train_error
 
-def train_model(model, X, y_onehot, is_underparam):
-    criterion = nn.MSELoss()
+def train_model(model, X, y_onehot, y_labels, is_underparam):
+    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
-    losses = []
+    losses = torch.empty(MAX_EPOCHS, device=X.device)
+    n_epochs_run = MAX_EPOCHS
     for epoch in range(MAX_EPOCHS):
-        train_error = run_epoch(model, X, y_onehot, criterion, optimizer)
-        losses.append(train_error)
+        check_now = is_underparam and (
+            epoch % EARLY_STOP_CHECK_INTERVAL == 0
+        )
+        loss, train_error = run_epoch(
+            model, X, y_onehot, y_labels, criterion, optimizer, compute_error=check_now
+        )
+        losses[epoch] = loss
         if is_underparam:
             scheduler.step()
-            if train_error == 0:
+            if check_now and train_error.item() == 0:
+                n_epochs_run = epoch + 1
                 break
-    return model, losses
+    return model, losses[:n_epochs_run].cpu().numpy()
 
 def evaluate(model, X, y_onehot, y_labels):
-    outputs = model(X)
-    preds = model(X).argmax(dim=1)
-    # return zero-one loss and MSE loss
-    return (preds != y_labels).float().mean().item(), np.mean((outputs - y_onehot).detach().numpy()**2)
+    with torch.no_grad():
+        outputs = model(X)
+        preds = outputs.argmax(dim=1)
+        zero_one = (preds != y_labels).float().mean()
+        mse = ((outputs - y_onehot) ** 2).mean()
+        ce = nn.functional.cross_entropy(outputs, y_onehot)
+    # return zero-one loss, MSE loss, and cross-entropy loss
+    return zero_one.item(), mse.item(), ce.item()

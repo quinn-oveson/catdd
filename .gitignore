@@ -1,3 +1,5 @@
-.catddvenv
 __pycache__/
 mnist_data/
+results/
+.*
+plots/

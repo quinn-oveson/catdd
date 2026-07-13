@@ -20,9 +20,11 @@ GAMMA = 0.9
 H_VALS = [4.,    5.,    8.,   13.,   18.,   23.,   25.,   28.,   30.,
          33.,   35.,   38.,   40.,   43.,   45.,   48.,   50.,   54.,
          58.,   63.,   75.,  101.,  201.,  314., 1006.]
-# STD for new weights in models that are resuing weights from past (not specified by Belkin)
-STD = 0.1
+# variance for new weights in models that are resuing weights from past (not specified by Belkin)
+VAR = 0.01
 # number of trials to average for each H value (from Belkin)
 N_TRIALS = 5
 # random seed list so the train set will change for each of the 5 iterations
 SEEDS = range(N_TRIALS)
+# how often (in epochs) to check whether we've reached 0 training error for Belkin stopping criterion
+EARLY_STOP_CHECK_INTERVAL = 25
