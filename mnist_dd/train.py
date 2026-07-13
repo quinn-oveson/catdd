@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL
+from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, ALWAYS_STOP, ALWAYS_DECAY
 
 
 def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=False):
@@ -17,24 +17,24 @@ def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=
     return loss.detach(), train_error
 
 def train_model(model, X, y_onehot, y_labels, is_underparam):
-    criterion = nn.CrossEntropyLoss()
+    criterion = LOSS_FUNC
     optimizer = torch.optim.SGD(model.parameters(), lr=LR, momentum=MOMENTUM)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = torch.empty(MAX_EPOCHS, device=X.device)
     n_epochs_run = MAX_EPOCHS
     for epoch in range(MAX_EPOCHS):
-        check_now = is_underparam and (
+        check_now = (is_underparam or ALWAYS_STOP) and (
             epoch % EARLY_STOP_CHECK_INTERVAL == 0
         )
         loss, train_error = run_epoch(
             model, X, y_onehot, y_labels, criterion, optimizer, compute_error=check_now
         )
         losses[epoch] = loss
-        if is_underparam:
+        if is_underparam or ALWAYS_DECAY:
             scheduler.step()
-            if check_now and train_error.item() == 0:
-                n_epochs_run = epoch + 1
-                break
+        if check_now and train_error.item() == 0:
+            n_epochs_run = epoch + 1
+            break
     return model, losses[:n_epochs_run].cpu().numpy()
 
 def evaluate(model, X, y_onehot, y_labels):

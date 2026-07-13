@@ -2,7 +2,7 @@ from mlp import MLP
 from utils import glorot_init, reuse_weights, num_params
 from data import load_mnist_subset, onehot
 from train import train_model, evaluate
-from config import H_VALS, SEEDS, N_TRIALS, K, N_TRAIN
+from config import H_VALS, SEEDS, N_TRIALS, K, N_TRAIN, REUSE_WEIGHTS_UNDERPARAM, CONFIG_LABEL, REUSE_WEIGHTS_OVERPARAM
 import numpy as np
 import pandas as pd
 import torch
@@ -33,15 +33,13 @@ for i in range(N_TRIALS):
     H1 = None
     for j in range(len(H_VALS)):
         H = int(H_VALS[j])
+        print(f"Working on H={H}, trial #{i+1}")
         model = MLP(H).to(device)
         is_underparam = num_params(H) < K*N_TRAIN
-        if j == 0 or not is_underparam:
+        if j == 0 or (is_underparam and not REUSE_WEIGHTS_UNDERPARAM) or ((not is_underparam) and not REUSE_WEIGHTS_OVERPARAM):
             glorot_init(model)
         else:
             reuse_weights(smaller_model, model, H_prev)
-            assert torch.allclose(model.hidden.weight[:H_prev], smaller_model.hidden.weight)
-            print(f"H={H}: new units std ≈ {model.hidden.weight[H_prev:].std().item():.4f}")  # should be ~0.1
-
         train_model(model, X_train, y_train_onehot, y_train, is_underparam)
         train_zeroone[i, j], train_MSE[i, j], train_CE[i, j] = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone[i, j], test_MSE[i, j], test_CE[i, j] = evaluate(model, X_test, y_test_onehot, y_test)
@@ -60,7 +58,7 @@ if __name__ == "__main__":
 
     results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
     os.makedirs(results_dir, exist_ok=True)
-    results_path = os.path.join(results_dir, "sweep_results_ce.csv")
+    results_path = os.path.join(results_dir, f"{CONFIG_LABEL}.csv")
 
     # rows = H values, columns = the 6 averaged error metrics
     results_df = pd.DataFrame(

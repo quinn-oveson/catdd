@@ -1,3 +1,4 @@
+import torch.nn as nn
 # D = size of input (number of pixels in one MNIST image)
 D = 784
 # K = number of classes (number of possible digits)
@@ -28,3 +29,21 @@ N_TRIALS = 5
 SEEDS = range(N_TRIALS)
 # how often (in epochs) to check whether we've reached 0 training error for Belkin stopping criterion
 EARLY_STOP_CHECK_INTERVAL = 25
+# loss function to use (Belkin = nn.MSELoss())
+LOSS_FUNC = nn.MSELoss()
+# booleans for config
+# always decay the learning rate even in overparameterized models (Belkin = False)
+ALWAYS_DECAY = False
+# always stop if train classification error hits 0 (Belkin = False)
+ALWAYS_STOP = False
+# reuse weights in underparameterized models (Belkin = True)
+REUSE_WEIGHTS_UNDERPARAM = True
+# reuse weights in overparameterized models (Belkin = False)
+REUSE_WEIGHTS_OVERPARAM = True
+# Label for file name
+CONFIG_LABEL = "mse_always_reuse_always_decay_always_stop"
+# Plot title
+PLOT_TITLE = "MSE Loss, Always Reuse Weights, Conditional LR Decay and Stopping"
+# True = zoomed-in plot (skip first 3 H values, tick marks starting at 14)
+# False = full plot (all H values, tick marks starting at 3)
+ZOOMED_PLOT = True
