@@ -23,6 +23,7 @@ Model details:
 * 2-layer neural network with fixed weights in the first layer
   * *Are these fixed weights kept the same?????*
 * RFF model family $\mathcal{H}_N$ consists of functions of the form $$h:\mathbb{R}^d\to\mathbb{C}\;\;\;\text{defined by}\;\;\;h(x)=\sum_{k=1}^Na_ke^{i\langle v_k,x\rangle},$$where $\{v_1,v_2,\dots v_N\}\subset\mathbb{R}^d$ are sampled independently from the standard normal distribution in $\mathbb{R}^d$. Thus there are $N$ parameters used: $(a_1,a_2,\dots a_N)$.
+* Bandwidth parameter $\sigma=5$
 * *Is $\{v_1,v_2,\dots v_N\}\subset\mathbb{R}^d$ sampled exactly once in the experiement??????? Or multiple times? IDK how RFF is generally done*
 
 Training details:
@@ -45,6 +46,8 @@ Data details:
 
 Model details:
 * I assume it's the same as in **1.1**.
+* Bandwidth parameter $\sigma=5$
+* Random feature vectors $v_1,\dots,v_N$ sampled independently from $\mathcal{N}(0,\sigma^{-2} I)$.
 
 Training details:
 * Assumed to be the same as in **1.1**.
@@ -62,14 +65,45 @@ Data details:
 
 Model details:
 * Assumed to be the same as **1.1**.
+* Random feature vectors $v_1,\dots,v_N$ sampled independently from $\mathcal{N}(0,\sigma^{-2} I)$.
+* Bandwidth parameter $\sigma=0.1$
 
 Training details:
 * Assumed to be the same as **1.1**.
 
 ### 1.4 TIMIT
+*Appendix fig. S2*
 
+Data details:
+* Choose subset of size $n=10^4$
+
+Model details:
+* Bandwidth parameter $\sigma=16$
+* Random feature vectors $v_1,\dots,v_N$ sampled independently from $\mathcal{N}(0,\sigma^{-2} I)$.
+* Rest same as **1.1**
+
+Training details:
+* Same as **1.1**
+
+Experiment details:
+* Same as **1.1**
 
 ### 1.5 SVHN
+*Appendix fig. S2*
+
+Data details:
+* Choose subset of size $n=10^4$
+
+Model details:
+* Bandwidth parameter $\sigma=16$
+* Random feature vectors $v_1,\dots,v_N$ sampled independently from $\mathcal{N}(0,\sigma^{-2} I)$.
+* Rest same as **1.1**
+
+Training details:
+* Same as above
+
+Experiment details:
+* Same as above
 
 ## 2. Fully-connected neural net
 
@@ -99,7 +133,7 @@ Experiment details:
 * In reality, this means we train for the following $H$-values (roughly): $$5,6,9,13,15,25,30,34,38,41,44,47,48,49,50,51,57,63,88,107,252,314,1006$$
 * Repeat the experiment 5 times and report average risk
 
-### 2.2 CIFAR-10a
+### 2.2 CIFAR-10
 *Appendix fig. S4*
 
 Data details:
@@ -152,13 +186,32 @@ Data details:
 *Found in appendix, fig. S3, pp. 4-5* 
 
 Data details
-* yeet
+* Choose subset of size $n=10^4$
 
 Model details:
 * Random ReLU features model family $\mathcal{H}_N$ with $N$ parameters consists of functions of the form$$h:\mathbb{R}^d\to\mathbb{R}\;\;\;\text{defined by}\;\;\;h(x)=\sum_{k=1}^Na_k\max\left(\langle v_k,x\rangle,0\right).$$
 * Vectors $v_1,\dots,v_N$ sampled independently from uniform distribution over surface of unit sphere in $\mathbb{R}^d$.
+* No regularization
 
 Training details:
 * Coefficients $a_1,\dots,a_N$ learned using linear regression
 
 Experiment details:
+* Train for following values of $N$ ($\times10^3$):$$0.625,1.25,1.875,2.5,3.125,3.75,4.375,5,5.625,6.25,6.875,7.5,8.125,8.75,9.375,10,11,12,13,14,20,40,60$$
+
+
+
+### 4.2 SVHN
+*Found in appendix, fig. S3, pp. 4-5* 
+
+Data details
+* Choose subset of size $n=10^4$
+
+Model details:
+* Same as **4.1** but add ridge regularization of size $\lambda=4\times10^{-6}$ for numerical stability
+
+Training details:
+* Coefficients $a_1,\dots,a_N$ learned using linear regression
+
+Experiment details:
+* Same as **4.1**
