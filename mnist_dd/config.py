@@ -26,3 +26,5 @@ VAR = 0.01
 N_TRIALS = 5
 # random seed list so the train set will change for each of the 5 iterations
 SEEDS = range(N_TRIALS)
+# how often (in epochs) to check whether we've reached 0 training error for Belkin stopping criterion
+EARLY_STOP_CHECK_INTERVAL = 25
