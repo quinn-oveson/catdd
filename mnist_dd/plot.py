@@ -65,7 +65,7 @@ plt.legend()
 plt.tight_layout()
 plt.savefig('./plots/full_batch_sweep_ce.jpg')
 
-
+plt.clf()
 plt.subplot(211)
 plt.title("Performance of Fully-connected NNs on MNIST (CE Loss)")
 plt.semilogx(sweep_df['params']/1e3, sweep_df['test_zeroone']*100, marker='D', ms=4, label="Test", color="tab:blue")
