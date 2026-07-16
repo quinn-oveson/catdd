@@ -28,9 +28,11 @@ N_TRIALS = 5
 # random seed list so the train set will change for each of the 5 iterations
 SEEDS = range(N_TRIALS)
 # how often (in epochs) to check whether we've reached 0 training error for Belkin stopping criterion
-EARLY_STOP_CHECK_INTERVAL = 25
+EARLY_STOP_CHECK_INTERVAL = 50
 # loss function to use (Belkin = nn.MSELoss())
 LOSS_FUNC = nn.MSELoss()
+# mini-batch size for training, None => full batch (Belkin doesn't specify)
+BATCH_SIZE = 100
 # booleans for config
 # always decay the learning rate even in overparameterized models (Belkin = False)
 ALWAYS_DECAY = False
@@ -41,9 +43,9 @@ REUSE_WEIGHTS_UNDERPARAM = True
 # reuse weights in overparameterized models (Belkin = False)
 REUSE_WEIGHTS_OVERPARAM = False
 # Label for file name
-CONFIG_LABEL = "higher_lr_belkin_setup_5_trials"
+CONFIG_LABEL = "belkin_batchsize100"
 # Plot title
-PLOT_TITLE = "LR=0.1, Belkin Setup"
+PLOT_TITLE = "LR=0.1, Batch size = 100, Belkin Setup"
 # True = zoomed-in plot (skip first 3 H values, tick marks starting at 14)
 # False = full plot (all H values, tick marks starting at 3)
-ZOOMED_PLOT = True
+ZOOMED_PLOT = False

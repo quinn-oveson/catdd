@@ -33,7 +33,7 @@ for i in range(N_TRIALS):
     H1 = None
     for j in range(len(H_VALS)):
         H = int(H_VALS[j])
-        print(f"Working on H={H}, trial #{i+1}")
+        print(f"Training H={H}, trial #{i+1}...")
         model = MLP(H).to(device)
         is_underparam = num_params(H) < K*N_TRAIN
         if j == 0 or (is_underparam and not REUSE_WEIGHTS_UNDERPARAM) or ((not is_underparam) and not REUSE_WEIGHTS_OVERPARAM):
@@ -43,6 +43,7 @@ for i in range(N_TRIALS):
         train_model(model, X_train, y_train_onehot, y_train, is_underparam)
         train_zeroone[i, j], train_MSE[i, j], train_CE[i, j] = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone[i, j], test_MSE[i, j], test_CE[i, j] = evaluate(model, X_test, y_test_onehot, y_test)
+        print(f"Training complete. Test zero-one error = {(test_zeroone[i, j])*100}%")
         smaller_model = model
         H_prev = H
 

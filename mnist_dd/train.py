@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, ALWAYS_STOP, ALWAYS_DECAY
+from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, ALWAYS_STOP, ALWAYS_DECAY, BATCH_SIZE
 
 
 def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=False):
@@ -22,19 +22,34 @@ def train_model(model, X, y_onehot, y_labels, is_underparam):
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = torch.empty(MAX_EPOCHS, device=X.device)
     n_epochs_run = MAX_EPOCHS
+
+    n_train = X.shape[0]
+    batch_size = BATCH_SIZE if BATCH_SIZE is not None else n_train
+
     for epoch in range(MAX_EPOCHS):
         check_now = (is_underparam or ALWAYS_STOP) and (
             epoch % EARLY_STOP_CHECK_INTERVAL == 0
         )
-        loss, train_error = run_epoch(
-            model, X, y_onehot, y_labels, criterion, optimizer, compute_error=check_now
-        )
-        losses[epoch] = loss
+        perm = torch.randperm(n_train, device=X.device)
+        epoch_loss = torch.zeros((), device=X.device)
+        for start in range(0, n_train, batch_size):
+            idx = perm[start:start + batch_size]
+            loss, _ = run_epoch(
+                model, X[idx], y_onehot[idx], y_labels[idx], criterion, optimizer, compute_error=False
+            )
+            epoch_loss += loss * idx.shape[0]
+        losses[epoch] = epoch_loss / n_train
+
         if is_underparam or ALWAYS_DECAY:
             scheduler.step()
-        if check_now and train_error.item() == 0:
-            n_epochs_run = epoch + 1
-            break
+
+        if check_now:
+            with torch.no_grad():
+                preds = model(X).argmax(dim=1)
+                train_error = (preds != y_labels).float().mean()
+            if train_error.item() == 0:
+                n_epochs_run = epoch + 1
+                break
     return model, losses[:n_epochs_run].cpu().numpy()
 
 def evaluate(model, X, y_onehot, y_labels):
