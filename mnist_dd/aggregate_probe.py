@@ -10,7 +10,7 @@ import os
 
 import pandas as pd
 
-from probe import PROBE_H_VALS, RESULTS_DIR
+from probe import PROBE_H_VALS, PROBE_H_TARGET_ZEROONE_PCT, RESULTS_DIR
 
 SUMMARY_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "probe_summary.csv")
 
@@ -34,7 +34,8 @@ def main():
     os.makedirs(os.path.dirname(SUMMARY_PATH), exist_ok=True)
     summary.to_csv(SUMMARY_PATH, index=False, float_format="%.4f")
     print(f"Wrote {SUMMARY_PATH} ({len(summary)} grid cells from {len(df)} rows across {len(files)} task files)")
-    print(f"Belkin targets for reference: H={PROBE_H_VALS[0]}~55%, H={PROBE_H_VALS[1]}~48%, H={PROBE_H_VALS[2]}~25%")
+    targets = ", ".join(f"H={h}~{t}%" for h, t in zip(PROBE_H_VALS, PROBE_H_TARGET_ZEROONE_PCT))
+    print(f"Belkin targets for reference: {targets}")
 
 
 if __name__ == "__main__":

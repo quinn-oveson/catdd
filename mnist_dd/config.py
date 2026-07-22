@@ -17,11 +17,8 @@ MAX_EPOCHS = 6000
 DECAY_INTERVAL = 500
 # decay factor for learning rate (Belkin = 0.9 for 10% decay)
 GAMMA = 0.9
-# these are guessed from the graph
-# H_VALS = [4.,    5.,    8.,   13.,   18.,   23.,   25.,   28.,   30., 33.,   35.,   38.,   40.,   43.,   45.,   48.,   50.,   54., 58.,   63.,   75.,  101.,  201.,  314., 1006.]
-H_VALS = [4, 6, 9, 13, 15, 25, 30, 34, 38, 41, 44, 47, 48, 49, 50, 51, 57, 63, 88, 107, 252, 314, 1006]
-# H_VALS = [40, 43, 45, 48, 50, 54]
-H_VALS=[4, 6]
+# these are found using the calibration script
+H_VALS = [4, 5, 8, 12, 18, 24, 28, 30, 32, 35, 38, 40, 45, 48, 50, 52, 55, 60, 70, 100, 200, 300, 1000]
 # variance for new weights in models that are resuing weights from past (not specified by Belkin)
 VAR = 0.01
 # number of trials to average for each H value (Belkin = 5)

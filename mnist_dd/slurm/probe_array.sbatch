@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash --login
 # SLURM array job for the Stage 1 probe sweep (probe.py).
 #
 # One array task = one (lr, batch_size, seed) cell, decoded deterministically
@@ -6,7 +6,7 @@
 # for real, do the ONE-TIME setup below, and run the small calibration test
 # described at the bottom of this file first.
 
-#SBATCH --time=03:00:00          # Each task trains 3 models (H=4,5,8) sequentially.
+#SBATCH --time=01:30:00          # Each task trains 3 models (H=4,5,8) sequentially.
                                   # Locally measured worst case per MODEL: ~23 min
                                   # (batch_size=25), so a task could take up to ~70 min
                                   # in the worst case. This budget gives >2x margin on
@@ -17,23 +17,17 @@
                                   # is free -- SLURM releases the GPU as soon as the task
                                   # exits -- the only cost of over-requesting is slightly
                                   # worse backfill scheduling (may queue a bit longer).
-#SBATCH --mem=8G
+#SBATCH --mem=4G
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --gpus=1
-#SBATCH --array=0-244%20         # 245 total cells (7 lr x 7 batch_size x 5 seeds).
-                                  # %20 caps 20 running concurrently -- a conservative
-                                  # starting guess, not a known hard limit. FSL has 210
-                                  # non-preemptible GPUs (marylou9g alone has 160x P100)
-                                  # plus ~157 preemptible ones that are low-risk to use
-                                  # here since any one cell now costs up to ~70 min if
-                                  # evicted, not ~24 min. Raise this once you've seen how
-                                  # it actually schedules.
+#SBATCH --array=0-24          # 25 total cells (5 lr x 1 batch_size x 5 seeds).
 #SBATCH -J catdd_probe
 #SBATCH --output=slurm_logs/probe_%A_%a.out
 #SBATCH --error=slurm_logs/probe_%A_%a.err
 
 # mkdir -p slurm_logs before submitting -- SLURM will not create it for you.
 
-module load miniforge3
 mamba activate catdd          # ONE-TIME SETUP (run interactively before first submission):
                                #   module load miniforge3
                                #   mamba create -n catdd python=3.10
@@ -67,14 +61,28 @@ cd "$SLURM_SUBMIT_DIR"   # mnist_dd/ directory you ran sbatch from
                           # (NOT "$(dirname "$0")" -- SLURM copies the script
                           # into /var/spool/slurmd/... before running it, so
                           # $0 does not point back to your submission directory)
+
+# #SBATCH -J above only sets the name at submission time, before
+# $SLURM_ARRAY_TASK_ID exists, so every task would otherwise show up in
+# squeue as identical "catdd_probe" rows. Rename this task's own job at
+# runtime instead, decoding lr/batch_size/seed via probe.decode_task_id()
+# (the same source of truth probe.py itself uses) rather than duplicating
+# the grid definition here where it could drift out of sync.
+CELL_NAME=$(python -c "
+from probe import decode_task_id
+lr, bs, seed = decode_task_id(${SLURM_ARRAY_TASK_ID})
+print(f'lr{lr}_bs{bs}_seed{seed}')
+")
+scontrol update JobId="$SLURM_JOB_ID" JobName="$CELL_NAME"
+
 python probe.py --task_id "$SLURM_ARRAY_TASK_ID"
 
 # --- Recommended rollout, don't jump straight to the full array ---
-# 1. Calibration test on 3 known cells (worst-case batch=25, mid full-batch,
-#    and the last index) to confirm the env/data/code actually works on real
-#    cluster hardware, and to get a real timing number:
+# 1. Calibration test on 3 known cells (first, middle, and last index) to
+#    confirm the env/data/code actually works on real cluster hardware, and
+#    to get a real timing number:
 #      mkdir -p slurm_logs
-#      sbatch --array=0,100,244 --time=01:30:00 slurm/probe_array.sbatch
+#      sbatch --array=0,12,24 --time=01:30:00 slurm/probe_array.sbatch
 #    Check results with: squeue -u $USER   and inspect slurm_logs/*.out after.
 # 2. Once those 3 succeed, compare their actual runtime to the --time above,
 #    adjust if needed, then submit the real thing:

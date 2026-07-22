@@ -19,15 +19,19 @@ import os
 import pandas as pd
 import torch
 
-from config import N_TRAIN, K, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM
+from config import N_TRAIN, K, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, H_VALS
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
 from utils import glorot_init, reuse_weights, num_params
 
 PROBE_H_VALS = [4, 5, 8]
-LR_GRID = [0.0003, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3]
-BATCH_SIZE_GRID = [25, 50, 100, 200, 500, 1000, 4000]
+# Belkin's approximate small-H test zero-one loss (%), read off Fig. 3 by eye --
+# there's no underlying raw data, only the published figure. One target per
+# PROBE_H_VALS entry, same order.
+PROBE_H_TARGET_ZEROONE_PCT = [55, 48, 25]
+LR_GRID = [0.0003, 0.0005, 0.001, 0.01, 0.05]
+BATCH_SIZE_GRID = [32]
 SEEDS = list(range(5))
 
 N_LR = len(LR_GRID)
