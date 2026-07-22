@@ -5,11 +5,12 @@ each as its own subprocess invocation of `full_sweep.py --task_id N` -- the
 exact same code path a SLURM array task will run later, so anything broken
 here would have been broken there too.
 
-This is much more expensive than run_stage1_local.py: each task now trains
-the full H_VALS curve (23 models, several deep into the overparameterized
-regime with a fixed 6000 epochs and no early stopping), not just 3 small-H
-probe models. Consider running a single task_id locally first to get a feel
-for timing before looping over all of them.
+This is much more expensive than run_stage1_local.py: chain tasks train every
+underparameterized H sequentially (weight reuse requires the order), and
+independent tasks each train one overparameterized H (fixed 6000 epochs, no
+early stopping) -- see full_sweep.py's module docstring for why these are
+split into two task kinds. Consider running a single task_id locally first to
+get a feel for timing before looping over all of them.
 
 Always runs with --full_batch: batch_size=32 means 4000/32=125 SGD steps per
 epoch, which is far too slow for a laptop CPU/MPS. batch_size=32 is only
@@ -35,8 +36,10 @@ def main():
     failed = []
 
     for task_id in range(TOTAL_TASKS):
-        lr, batch_size, seed = decode_task_id(task_id)
-        print(f"[{task_id + 1}/{TOTAL_TASKS}] lr={lr}, batch_size={batch_size}, seed={seed} (running --full_batch locally)")
+        spec = decode_task_id(task_id)
+        h_desc = f"H={spec.H}" if spec.H is not None else "H=<chain>"
+        print(f"[{task_id + 1}/{TOTAL_TASKS}] kind={spec.kind}, lr={spec.lr}, batch_size={spec.batch_size}, "
+              f"seed={spec.seed}, {h_desc} (running --full_batch locally)")
         result = subprocess.run([sys.executable, FULL_SWEEP_SCRIPT, "--task_id", str(task_id), "--full_batch"])
         if result.returncode != 0:
             print(f"  FAILED (exit code {result.returncode})")

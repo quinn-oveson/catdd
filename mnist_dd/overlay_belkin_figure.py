@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from config import H_VALS
+from config import H_VALS, K
 from utils import num_params
 
 CALIBRATION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "belkin_calibration.json")
@@ -93,8 +93,16 @@ def main():
     ax_top.legend(fontsize=8)
     ax_top.set_title("Our results overlaid on Belkin Fig. 3 (background = his, markers = ours)")
 
+    # evaluate()'s MSE averages the squared error over all K=10 one-hot output
+    # dims (PyTorch's nn.MSELoss default); Belkin's squared-loss risk is almost
+    # certainly summed over those K dims instead (the classical-statistics
+    # convention his paper is framed around) -- confirmed by our digitized
+    # H=1000 point matching his almost exactly once scaled by K. Correct for
+    # it here rather than in evaluate()/training, since rescaling the loss is
+    # mathematically absorbed by the already-tuned lr and doesn't affect the
+    # trained models themselves.
     draw_panel(ax_bottom, crop_bottom, extent_bottom, x, summary, "H{h}_test_MSE_mean", colors,
-               "Squared loss")
+               "Squared loss", scale=K)
     ax_bottom.set_xlabel("Number of parameters/weights")
 
     fig.tight_layout()

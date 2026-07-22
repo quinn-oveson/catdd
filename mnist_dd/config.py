@@ -19,7 +19,7 @@ DECAY_INTERVAL = 500
 GAMMA = 0.9
 # these are found using the calibration script
 H_VALS = [4, 5, 8, 12, 18, 24, 28, 30, 32, 35, 38, 40, 45, 48, 50, 52, 55, 60, 70, 100, 200, 300, 1000]
-# variance for new weights in models that are resuing weights from past (not specified by Belkin)
+# variance for new weights in models that are resuing weights from past (Belkin = 0.01)
 VAR = 0.01
 # number of trials to average for each H value (Belkin = 5)
 N_TRIALS = 3
