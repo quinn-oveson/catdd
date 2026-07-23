@@ -17,8 +17,8 @@ def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=
             train_error = (preds != y_labels).float().mean()
     return loss.detach(), train_error
 
-def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=BATCH_SIZE):
-    criterion = LOSS_FUNC
+def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=BATCH_SIZE, loss_func=LOSS_FUNC):
+    criterion = loss_func
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=MOMENTUM)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = torch.empty(MAX_EPOCHS, device=X.device)

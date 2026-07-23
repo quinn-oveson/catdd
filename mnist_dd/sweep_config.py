@@ -9,13 +9,15 @@ parallelize training runs.
 BELKIN_CONFIG = True: one-command reproduction of Belkin et al. 2019 Fig 3.
 Collapses the grid to the single (lr, batch_size) candidate identified by the
 Stage 1 probe sweep (see probe.py / results/probe_summary.csv) as the best
-fit against Belkin's digitized curve, and locks all six behavior flags to
-Belkin's exact setup below -- so `python full_sweep.py` reproduces the
-paper's plot without re-running the Stage 1 search.
+fit against Belkin's digitized curve, and locks all six behavior flags plus
+LOSS_FUNC to Belkin's exact setup below -- so `python full_sweep.py`
+reproduces the paper's plot without re-running the Stage 1 search.
 
 BELKIN_CONFIG = False: the grid/flags below apply as literally written (edit
 freely) for exploratory sweeps beyond Belkin's own setup.
 """
+import torch.nn as nn
+
 BELKIN_CONFIG = False
 
 # Stage 1 probe's best-fit (lr, batch_size) candidate against Belkin's Fig 3
@@ -49,6 +51,13 @@ DECAY_OVERPARAM = True    # Belkin = False
 STOP_UNDERPARAM = True    # Belkin = True
 STOP_OVERPARAM = True    # Belkin = False
 
+# loss function used for training (Belkin = nn.MSELoss()). Swap for
+# nn.CrossEntropyLoss() to train against cross-entropy instead -- the
+# one-hot targets already used everywhere (train.py/full_sweep.py/probe.py)
+# work as CrossEntropyLoss's soft-label target as-is, no other code changes
+# needed.
+LOSS_FUNC = nn.MSELoss()    # Belkin = nn.MSELoss()
+
 if BELKIN_CONFIG:
     LR_GRID = [BELKIN_LR]
     BATCH_SIZE_GRID = [BELKIN_BATCH_SIZE]
@@ -58,3 +67,4 @@ if BELKIN_CONFIG:
     DECAY_OVERPARAM = False
     STOP_UNDERPARAM = True
     STOP_OVERPARAM = False
+    LOSS_FUNC = nn.MSELoss()

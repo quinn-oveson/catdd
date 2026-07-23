@@ -52,7 +52,7 @@ import pandas as pd
 import torch
 
 from config import N_TRAIN, K, H_VALS
-from sweep_config import LR_GRID, BATCH_SIZE_GRID, SEEDS, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM
+from sweep_config import LR_GRID, BATCH_SIZE_GRID, SEEDS, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, LOSS_FUNC
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
@@ -156,7 +156,7 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         else:
             reuse_weights(smaller_model, model, H_prev)
 
-        train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size)
+        train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size, loss_func=LOSS_FUNC)
         train_zeroone, train_mse, train_ce = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone, test_mse, test_ce = evaluate(model, X_test, y_test_onehot, y_test)
 
