@@ -36,10 +36,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary_path", default=SUMMARY_PATH,
                          help="Which full-sweep summary CSV to plot (default: results/full_sweep_summary.csv).")
+    parser.add_argument("--out_path", default=OUT_PATH,
+                         help="Path to save the plot to")
     parser.add_argument("--lr", type=float, default=0.0005,
                          help="lr row to pull from the summary (default: 0.0005).")
     parser.add_argument("--batch_size", type=int, default=32,
                          help="batch_size row to pull from the summary (default: 32).")
+    parser.add_argument("--plot_title", default=None,
+                        help="What title to give this plot (default: lr={args.lr}, batch_size={args.batch_size} vs. Belkin Fig. 3).")
+
     args = parser.parse_args()
 
     if not os.path.exists(args.summary_path):
@@ -73,7 +78,10 @@ def main():
     ax_top.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
     ax_top.set_ylim(bottom=0)
     ax_top.set_ylabel("Zero-one loss (%)")
-    ax_top.set_title(f"lr={args.lr}, batch_size={args.batch_size} vs. Belkin Fig. 3")
+    if args.plot_title == None:
+        ax_top.set_title(f"lr={args.lr}, batch_size={args.batch_size} vs. Belkin Fig. 3")
+    else:
+        ax_top.set_title(args.plot_title)
     ax_top.legend(fontsize=7, ncol=2)
 
     ax_bot.plot(x_belkin, belkin["test_squared_loss"], linestyle="--", marker="*", ms=8,
@@ -100,8 +108,8 @@ def main():
     ax_bot.ticklabel_format(style="plain", axis="x")
 
     fig.tight_layout()
-    fig.savefig(OUT_PATH, dpi=150)
-    print(f"Wrote {OUT_PATH}")
+    fig.savefig(args.out_path, dpi=150)
+    print(f"Wrote {args.out_path}")
 
 
 if __name__ == "__main__":

@@ -36,11 +36,12 @@ H_COLUMN_RE = re.compile(r"^H(\d+)_test_zeroone_mean$")
 # summary only has these two lr rows -- relying on cycle order wouldn't match).
 LR_COLORS = {0.001: "tab:green", 0.0005: "tab:orange"}
 
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary_path", default=SUMMARY_PATH,
                          help="Which full-sweep summary CSV to plot (default: results/full_sweep_summary.csv).")
+    parser.add_argument("--plot_title", default=None,
+                         help="What title to give this plot (default: Stage 3 full sweep vs. Belkin's full digitized curve).")
     parser.add_argument("--no_errorbars", action="store_true",
                          help="Skip std error bars -- use this if the summary CSV doesn't have "
                               "std for every cell (e.g. some cells only had 1 seed).")
@@ -83,7 +84,10 @@ def main():
     ax.set_xlabel(r"Number of parameters/weights ($\times10^3$)")
     ax.set_ylabel("Zero-one loss (%)")
     title_suffix = "" if args.no_errorbars else " (±1 std across seeds)"
-    ax.set_title(f"Stage 3 full sweep vs. Belkin's full digitized curve{title_suffix}")
+    if args.plot_title == None:
+        ax.set_title(f"Stage 3 full sweep vs. Belkin's full digitized curve {title_suffix}")
+    else:
+        ax.set_title(args.plot_title)
     ax.legend(fontsize=7, ncol=2)
 
     ticks = [3, 10, 40, 100, 300, 800]
