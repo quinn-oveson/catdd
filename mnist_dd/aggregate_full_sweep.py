@@ -6,14 +6,24 @@ to one row per (lr, batch_size), with the mean and std (across seeds) of all
 -- at each H in config.H_VALS, matching Belkin's Fig. 3 (which plots both
 Test and Train for both loss types). overlay_belkin_figure.py only needs the
 test_* columns, but the train_* columns are here too for a full 4-curve plot.
+
+Also aggregates n_epochs (how many epochs each model actually ran before
+hitting MAX_EPOCHS or early stopping -- see sweep_config.STOP_UNDERPARAM/
+STOP_OVERPARAM) at every H, useful for checking where early stopping is
+actually kicking in. Task CSVs always carry train_CE/test_CE too (evaluate()
+computes all three losses regardless of which one was trained against), but
+those columns are only pivoted into the summary when sweep_config.LOSS_FUNC
+is CrossEntropyLoss, to keep MSE-run summaries free of an irrelevant metric.
 """
 import glob
 import os
 
 import pandas as pd
+import torch.nn as nn
 
 from config import H_VALS
 from full_sweep import RESULTS_DIR
+from sweep_config import LOSS_FUNC
 
 SUMMARY_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "full_sweep_summary.csv")
 
@@ -25,8 +35,12 @@ def main():
 
     df = pd.concat((pd.read_csv(f) for f in files), ignore_index=True)
 
+    metrics = ["test_zeroone", "test_MSE", "train_zeroone", "train_MSE", "n_epochs"]
+    if isinstance(LOSS_FUNC, nn.CrossEntropyLoss):
+        metrics += ["test_CE", "train_CE"]
+
     pivots = []
-    for metric in ["test_zeroone", "test_MSE", "train_zeroone", "train_MSE"]:
+    for metric in metrics:
         pivot = df.pivot_table(index=["lr", "batch_size"], columns="H", values=metric, aggfunc=["mean", "std"])
         pivot.columns = [f"H{h}_{metric}_{stat}" for stat, h in pivot.columns]
         pivots.append(pivot)

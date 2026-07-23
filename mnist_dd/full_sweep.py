@@ -156,7 +156,7 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         else:
             reuse_weights(smaller_model, model, H_prev)
 
-        train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size, loss_func=LOSS_FUNC)
+        _, epoch_losses = train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size, loss_func=LOSS_FUNC)
         train_zeroone, train_mse, train_ce = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone, test_mse, test_ce = evaluate(model, X_test, y_test_onehot, y_test)
 
@@ -165,6 +165,7 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
             "train_zeroone": train_zeroone, "test_zeroone": test_zeroone,
             "train_MSE": train_mse, "test_MSE": test_mse,
             "train_CE": train_ce, "test_CE": test_ce,
+            "n_epochs": len(epoch_losses),
         })
         smaller_model = model
         H_prev = H

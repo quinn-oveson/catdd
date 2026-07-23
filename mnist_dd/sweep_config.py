@@ -27,8 +27,16 @@ BELKIN_BATCH_SIZE = 32
 
 # --- Grid to sweep over lr / batch_size / seed (Stage 2/3, full_sweep.py) ---
 # Ignored (overridden below) when BELKIN_CONFIG=True.
-LR_GRID = [0.0005]
-BATCH_SIZE_GRID = [32]
+# CE loss search: same LR range as the Stage 1 MSE probe (softmax+CE's
+# output-layer gradient, softmax-onehot, is the same order of magnitude as
+# MSE's 2*(output-onehot), so there's no reason to expect CE to need a
+# different LR scale) crossed with a batch-size range from the MSE candidate
+# (32) up through much larger batches (fewer, bigger SGD steps/epoch) to
+# check sensitivity in that direction too. Kept >= 32 -- smaller batches
+# just add wall-clock (more steps/epoch) without a distinct enough gradient-
+# noise regime to be worth the extra grid points here.
+LR_GRID = [0.0005, 0.001, 0.005, 0.01, 0.05]
+BATCH_SIZE_GRID = [32, 64, 128, 256, 400, 800]
 SEEDS = list(range(5))  # Belkin averages over 5 trials
 
 # --- Behavior flags, split underparam/overparam, one consistent naming
@@ -56,7 +64,7 @@ STOP_OVERPARAM = True    # Belkin = False
 # one-hot targets already used everywhere (train.py/full_sweep.py/probe.py)
 # work as CrossEntropyLoss's soft-label target as-is, no other code changes
 # needed.
-LOSS_FUNC = nn.MSELoss()    # Belkin = nn.MSELoss()
+LOSS_FUNC = nn.CrossEntropyLoss()    # Belkin = nn.MSELoss()
 
 if BELKIN_CONFIG:
     LR_GRID = [BELKIN_LR]
