@@ -31,15 +31,6 @@ EARLY_STOP_CHECK_INTERVAL = 50
 LOSS_FUNC = nn.MSELoss()
 # mini-batch size for training, None => full batch (Belkin doesn't specify)
 BATCH_SIZE = 50
-# booleans for config
-# always decay the learning rate even in overparameterized models (Belkin = False)
-ALWAYS_DECAY = False
-# always stop if train classification error hits 0 (Belkin = False)
-ALWAYS_STOP = False
-# reuse weights in underparameterized models (Belkin = True)
-REUSE_WEIGHTS_UNDERPARAM = True
-# reuse weights in overparameterized models (Belkin = False)
-REUSE_WEIGHTS_OVERPARAM = False
 # Label for file name
 CONFIG_LABEL = f"belkin_batchsize{BATCH_SIZE}_lr{LR}_test"
 # Plot title

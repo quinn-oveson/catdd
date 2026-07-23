@@ -19,7 +19,8 @@ import os
 import pandas as pd
 import torch
 
-from config import N_TRAIN, K, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, H_VALS
+from config import N_TRAIN, K, H_VALS
+from sweep_config import REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate

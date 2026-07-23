@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
-from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, ALWAYS_STOP, ALWAYS_DECAY, BATCH_SIZE
+from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, BATCH_SIZE
+from sweep_config import DECAY_UNDERPARAM, DECAY_OVERPARAM, STOP_UNDERPARAM, STOP_OVERPARAM
 
 
 def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=False):
@@ -26,10 +27,11 @@ def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=B
     n_train = X.shape[0]
     batch_size = batch_size if batch_size is not None else n_train
 
+    stop_enabled = STOP_UNDERPARAM if is_underparam else STOP_OVERPARAM
+    decay_enabled = DECAY_UNDERPARAM if is_underparam else DECAY_OVERPARAM
+
     for epoch in range(MAX_EPOCHS):
-        check_now = (is_underparam or ALWAYS_STOP) and (
-            epoch % EARLY_STOP_CHECK_INTERVAL == 0
-        )
+        check_now = stop_enabled and (epoch % EARLY_STOP_CHECK_INTERVAL == 0)
         perm = torch.randperm(n_train, device=X.device)
         epoch_loss = torch.zeros((), device=X.device)
         for start in range(0, n_train, batch_size):
@@ -40,7 +42,7 @@ def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=B
             epoch_loss += loss * idx.shape[0]
         losses[epoch] = epoch_loss / n_train
 
-        if is_underparam or ALWAYS_DECAY:
+        if decay_enabled:
             scheduler.step()
 
         if check_now:

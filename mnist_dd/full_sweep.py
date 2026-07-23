@@ -1,23 +1,38 @@
 """Stage 2 full sweep: run the full Belkin H_VALS curve for the (lr, batch_size)
-candidates identified by the Stage 1 probe (see probe.py / plot_probe.py /
-results/probe_summary.csv).
+candidates in sweep_config.LR_GRID/BATCH_SIZE_GRID (see sweep_config.py --
+BELKIN_CONFIG=True collapses this to the single best-fit candidate from the
+Stage 1 probe).
 
-Belkin's weight-reuse scheme (config.REUSE_WEIGHTS_UNDERPARAM=True,
-REUSE_WEIGHTS_OVERPARAM=False) only chains together the underparameterized H's
-below the interpolation threshold -- each overparameterized H is always
-trained from a fresh Glorot init, independent of every other H (including
-each other). So there are two kinds of task, split by config.H_VALS via the
-num_params(H) < K*N_TRAIN threshold:
-  - "chain" tasks: one per (lr, batch_size, seed), training every
-    underparameterized H sequentially (weight reuse requires the order).
-  - "independent" tasks: one per (lr, batch_size, seed, H) for each
-    overparameterized H -- these have no dependency on anything else and are
-    fully parallelizable, unlike a naive "train all 23 H's in one task" design
-    which would serialize the most expensive models (up to H=1000) behind
-    each other for no reason.
+Task splitting is derived from sweep_config.REUSE_WEIGHTS_UNDERPARAM/
+REUSE_WEIGHTS_OVERPARAM via a per-H rule: H_VALS (sorted ascending) is
+partitioned into maximal "segments" -- runs of consecutive H's where each H
+after the first reuses weights from the H immediately before it, exactly
+matching probe.py/sweep.py's own reuse-vs-glorot rule (reuse into a given H
+is governed by THAT H's own under/overparam region flag, not the previous
+H's). Each segment is trained by one task, sequentially within the segment
+(weight reuse requires the order); different segments have no dependency on
+each other and are fully parallelizable.
 
-task_id < N_CHAIN_TASKS decodes to a chain task; task_id >= N_CHAIN_TASKS
-decodes to an independent single-H task. Meant to run identically two ways:
+This means:
+  - REUSE_WEIGHTS_UNDERPARAM=True, REUSE_WEIGHTS_OVERPARAM=False (Belkin's
+    own setup, the default): one segment covering all underparameterized
+    H's (a "chain" task) plus one singleton segment per overparameterized H
+    (an "independent" task each) -- the interpolation threshold breaks the
+    chain because the first overparameterized H's own flag is False.
+  - Both True: a single segment spans ALL of H_VALS -- one fully serial
+    chain per (lr, batch_size, seed), with weight reuse running continuously
+    straight through the interpolation threshold.
+  - Both False: every H is its own singleton segment -- fully parallel.
+  - REUSE_WEIGHTS_UNDERPARAM=False, REUSE_WEIGHTS_OVERPARAM=True: every
+    underparameterized H is independent EXCEPT the last one, which gets
+    folded into the same segment as the overparameterized chain (since the
+    first overparameterized H's own flag is True, it extends rather than
+    breaks that segment) -- so the first overparameterized H reuses from the
+    last underparameterized H's trained model, without needing any
+    cross-task checkpointing.
+
+task_id decodes to one segment for one (lr, batch_size, seed) cell. Meant to
+run identically two ways:
   - locally, looped over all task_ids (see run_full_sweep_local.py)
   - as one SLURM array task, with --task_id set from $SLURM_ARRAY_TASK_ID
     (see slurm/full_sweep_array.sbatch)
@@ -33,53 +48,55 @@ from collections import namedtuple
 import pandas as pd
 import torch
 
-from config import N_TRAIN, K, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, H_VALS
+from config import N_TRAIN, K, H_VALS
+from sweep_config import LR_GRID, BATCH_SIZE_GRID, SEEDS, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
 from utils import glorot_init, reuse_weights, num_params
 
-# Candidates carried over from the Stage 1 probe (see results/probe_summary.csv /
-# results/probe_vs_belkin.png) -- both at batch_size=32, the two lr's that best
-# matched Belkin's small-H targets.
-LR_GRID = [0.001, 0.0005]
-BATCH_SIZE_GRID = [32]
-SEEDS = list(range(5))  # Belkin averages over 5 trials
-
 N_LR = len(LR_GRID)
 N_BS = len(BATCH_SIZE_GRID)
 N_SEEDS = len(SEEDS)
 
-UNDERPARAM_H_VALS = [int(h) for h in H_VALS if num_params(h) < K * N_TRAIN]
-OVERPARAM_H_VALS = [int(h) for h in H_VALS if num_params(h) >= K * N_TRAIN]
-
-N_CHAIN_TASKS = N_LR * N_BS * N_SEEDS
-N_INDEPENDENT_TASKS = N_LR * N_BS * N_SEEDS * len(OVERPARAM_H_VALS)
-TOTAL_TASKS = N_CHAIN_TASKS + N_INDEPENDENT_TASKS
-
 RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "full_sweep")
 
-TaskSpec = namedtuple("TaskSpec", ["kind", "lr", "batch_size", "seed", "H"])
+TaskSpec = namedtuple("TaskSpec", ["lr", "batch_size", "seed", "H_list"])
+
+
+def _reuses_from_prev(H):
+    """Whether H reuses weights from the H immediately before it (in sorted
+    H_VALS order), governed by H's OWN region flag -- same rule as
+    probe.py/sweep.py's inline glorot_init/reuse_weights branch."""
+    is_underparam = num_params(H) < K * N_TRAIN
+    return REUSE_WEIGHTS_UNDERPARAM if is_underparam else REUSE_WEIGHTS_OVERPARAM
+
+
+def _build_segments():
+    segments = [[H_VALS[0]]]  # first H overall has no predecessor -- always fresh Glorot
+    for H in H_VALS[1:]:
+        if _reuses_from_prev(H):
+            segments[-1].append(H)
+        else:
+            segments.append([H])
+    return segments
+
+
+SEGMENTS = _build_segments()
+N_SEGMENTS = len(SEGMENTS)
+TOTAL_TASKS = N_LR * N_BS * N_SEEDS * N_SEGMENTS
 
 
 def decode_task_id(task_id):
     if not (0 <= task_id < TOTAL_TASKS):
         raise ValueError(f"task_id must be in [0, {TOTAL_TASKS}), got {task_id}")
 
-    if task_id < N_CHAIN_TASKS:
-        seed_idx = task_id % N_SEEDS
-        bs_idx = (task_id // N_SEEDS) % N_BS
-        lr_idx = task_id // (N_SEEDS * N_BS)
-        return TaskSpec("chain", LR_GRID[lr_idx], BATCH_SIZE_GRID[bs_idx], SEEDS[seed_idx], None)
-
-    idx = task_id - N_CHAIN_TASKS
-    n_overparam = len(OVERPARAM_H_VALS)
-    h_idx = idx % n_overparam
-    idx2 = idx // n_overparam
+    seg_idx = task_id % N_SEGMENTS
+    idx2 = task_id // N_SEGMENTS
     seed_idx = idx2 % N_SEEDS
     bs_idx = (idx2 // N_SEEDS) % N_BS
     lr_idx = idx2 // (N_SEEDS * N_BS)
-    return TaskSpec("independent", LR_GRID[lr_idx], BATCH_SIZE_GRID[bs_idx], SEEDS[seed_idx], OVERPARAM_H_VALS[h_idx])
+    return TaskSpec(LR_GRID[lr_idx], BATCH_SIZE_GRID[bs_idx], SEEDS[seed_idx], SEGMENTS[seg_idx])
 
 
 def get_device():
@@ -97,7 +114,7 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         # For fast local sanity checks only -- batch_size=32 means 4000/32=125
         # SGD steps/epoch, which is painfully slow on a laptop CPU/MPS. The
         # cluster run (slurm/full_sweep_array.sbatch) never passes --full_batch,
-        # so it always uses the real batch_size=32 candidate from the grid.
+        # so it always uses the real batch_size candidate from the grid.
         batch_size = N_TRAIN
     device = get_device()
 
@@ -108,48 +125,18 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
     y_test_onehot = onehot(y_test)
 
     rows = []
-
-    if spec.kind == "chain":
-        smaller_model = None
-        H_prev = None
-        for j, H in enumerate(UNDERPARAM_H_VALS):
-            t0 = time.time()
-            model = MLP(H).to(device)
-            # Every H here is underparameterized by construction, so Belkin's rule
-            # reduces to: Glorot for the first (smallest) network, reuse after that.
-            if j == 0 or not REUSE_WEIGHTS_UNDERPARAM:
-                glorot_init(model)
-            else:
-                reuse_weights(smaller_model, model, H_prev)
-
-            train_model(model, X_train, y_train_onehot, y_train, True, lr=lr, batch_size=batch_size)
-            train_zeroone, train_mse, train_ce = evaluate(model, X_train, y_train_onehot, y_train)
-            test_zeroone, test_mse, test_ce = evaluate(model, X_test, y_test_onehot, y_test)
-
-            rows.append({
-                "lr": lr, "batch_size": batch_size, "seed": seed, "H": H,
-                "train_zeroone": train_zeroone, "test_zeroone": test_zeroone,
-                "train_MSE": train_mse, "test_MSE": test_mse,
-                "train_CE": train_ce, "test_CE": test_ce,
-            })
-            smaller_model = model
-            H_prev = H
-            print(f"  [{j + 1}/{len(UNDERPARAM_H_VALS)}] H={H} done in {time.time() - t0:.1f}s "
-                  f"(test_zeroone={test_zeroone:.4f})", flush=True)
-
-    else:  # "independent" -- a single overparameterized H, always fresh Glorot init
+    smaller_model = None
+    H_prev = None
+    for j, H in enumerate(spec.H_list):
         t0 = time.time()
-        H = spec.H
+        is_underparam = num_params(H) < K * N_TRAIN
         model = MLP(H).to(device)
-        if REUSE_WEIGHTS_OVERPARAM:
-            raise NotImplementedError(
-                "REUSE_WEIGHTS_OVERPARAM=True would reintroduce a dependency on the "
-                "previous H's weights, breaking the independent-task parallelization "
-                "this script relies on for overparameterized H's."
-            )
-        glorot_init(model)
+        if j == 0:
+            glorot_init(model)
+        else:
+            reuse_weights(smaller_model, model, H_prev)
 
-        train_model(model, X_train, y_train_onehot, y_train, False, lr=lr, batch_size=batch_size)
+        train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size)
         train_zeroone, train_mse, train_ce = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone, test_mse, test_ce = evaluate(model, X_test, y_test_onehot, y_test)
 
@@ -159,7 +146,10 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
             "train_MSE": train_mse, "test_MSE": test_mse,
             "train_CE": train_ce, "test_CE": test_ce,
         })
-        print(f"  H={H} done in {time.time() - t0:.1f}s (test_zeroone={test_zeroone:.4f})", flush=True)
+        smaller_model = model
+        H_prev = H
+        print(f"  [{j + 1}/{len(spec.H_list)}] H={H} done in {time.time() - t0:.1f}s "
+              f"(test_zeroone={test_zeroone:.4f})", flush=True)
 
     if device.type == "cuda":
         peak_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2)
@@ -172,27 +162,27 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run one Stage 2 full-sweep task (a weight-reuse chain or one independent overparam H).")
+    parser = argparse.ArgumentParser(description="Run one Stage 2 full-sweep task (one weight-reuse segment).")
     parser.add_argument("--task_id", type=int, required=True,
-                         help=f"Index in [0, {TOTAL_TASKS}): [0, {N_CHAIN_TASKS}) are chain tasks, "
-                              f"[{N_CHAIN_TASKS}, {TOTAL_TASKS}) are independent overparam-H tasks.")
+                         help=f"Index in [0, {TOTAL_TASKS}), one per (lr, batch_size, seed, segment) -- "
+                              f"see full_sweep.SEGMENTS for the current segment list.")
     parser.add_argument("--output_dir", type=str, default=RESULTS_DIR)
     parser.add_argument("--dry_run", action="store_true",
                          help="Print what this task_id maps to, without training.")
     parser.add_argument("--full_batch", action="store_true",
                          help="Override to full-batch training (batch_size=N_TRAIN) for fast local "
-                              "testing. The cluster run should NOT use this -- batch_size=32 is the "
-                              "actual candidate from the Stage 1 probe.")
+                              "testing. The cluster run should NOT use this -- the batch_size grid "
+                              "value is the actual candidate to use.")
     args = parser.parse_args()
 
     spec = decode_task_id(args.task_id)
     lr, batch_size, seed = spec.lr, spec.batch_size, spec.seed
     if args.full_batch:
         batch_size = N_TRAIN
+    kind = "chain" if len(spec.H_list) > 1 else "independent"
     if args.dry_run:
-        h_desc = f"H={spec.H}" if spec.H is not None else f"H_chain={UNDERPARAM_H_VALS}"
-        print(f"task_id={args.task_id} -> kind={spec.kind}, lr={lr}, batch_size={batch_size}, seed={seed}, {h_desc}")
+        print(f"task_id={args.task_id} -> kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}")
     else:
-        print(f"task_id={args.task_id}: kind={spec.kind}, lr={lr}, batch_size={batch_size}, seed={seed}", flush=True)
+        print(f"task_id={args.task_id}: kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}", flush=True)
         out_path = run_full_task(args.task_id, args.output_dir, full_batch=args.full_batch)
         print(f"Wrote {out_path}")

@@ -2,7 +2,8 @@ from mlp import MLP
 from utils import glorot_init, reuse_weights, num_params
 from data import load_mnist_subset, onehot
 from train import train_model, evaluate
-from config import H_VALS, SEEDS, N_TRIALS, K, N_TRAIN, REUSE_WEIGHTS_UNDERPARAM, CONFIG_LABEL, REUSE_WEIGHTS_OVERPARAM
+from config import H_VALS, SEEDS, N_TRIALS, K, N_TRAIN, CONFIG_LABEL
+from sweep_config import REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM
 import numpy as np
 import pandas as pd
 import torch

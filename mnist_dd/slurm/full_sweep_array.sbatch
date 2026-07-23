@@ -1,28 +1,33 @@
 #!/bin/bash --login
 # SLURM array job for the Stage 2 full sweep (full_sweep.py).
 #
-# Two kinds of array task, both decoded from $SLURM_ARRAY_TASK_ID by
-# full_sweep.decode_task_id() -- see that module's docstring for why:
-#   - task_id in [0, 10): a "chain" task -- one per (lr, batch_size, seed),
-#     training every underparameterized H sequentially (weight reuse requires
-#     the order).
-#   - task_id in [10, 90): an "independent" task -- one per
-#     (lr, batch_size, seed, H) for each of the 8 overparameterized H's
-#     (52,55,60,70,100,200,300,1000). Each trains a single fresh-Glorot model
-#     with no dependency on anything else, so these are fully parallelizable
-#     instead of serializing the most expensive models (up to H=1000) behind
-#     each other for no reason.
+# Every array task decodes $SLURM_ARRAY_TASK_ID via full_sweep.decode_task_id()
+# into one weight-reuse "segment" -- a run of one or more H's trained
+# sequentially, for one (lr, batch_size, seed) cell -- see that module's
+# docstring for exactly how segments are derived from sweep_config's
+# REUSE_WEIGHTS_UNDERPARAM/REUSE_WEIGHTS_OVERPARAM flags. Segment sizes are
+# NOT fixed at "underparam block first, overparam block second" in every flag
+# combination (a segment can span the interpolation threshold), so don't
+# assume a hardcoded task_id split -- run this before submitting anything to
+# see the actual current segment sizes and where the expensive multi-H ones
+# land:
+#   python -c "from full_sweep import SEGMENTS; [print(i, len(s), s) for i, s in enumerate(SEGMENTS)]"
+# (segment index = task_id % len(SEGMENTS); under today's default
+# (sweep_config.BELKIN_CONFIG=True, REUSE_WEIGHTS_UNDERPARAM=True,
+# REUSE_WEIGHTS_OVERPARAM=False) that's 1 lr x 1 batch_size x 5 seeds x 9
+# segments = 45 tasks: segment 0 is the 15-H underparam chain, segments 1-8
+# are the 8 overparameterized H's (52,55,60,70,100,200,300,1000) each as
+# their own 1-H segment.)
 #
-# Chain tasks are the priority: they're the ones we expect to take longer (up
-# to 15 sequential models each, vs. 1 for an independent task), so submit them
-# as their own array first at normal priority, and submit the independent
-# tasks as a SEPARATE array afterward with a higher --nice value -- this
-# explicitly deprioritizes the independent job whenever both are competing
-# for the same limited concurrent-node budget, rather than hoping submission
-# order alone gets that ordering right. See step 3 at the bottom of this file
-# for the exact two-submission commands. This split also lets each array get
-# its own --time budget instead of one placeholder covering both very
-# different cost profiles.
+# Multi-H segments are the priority: they take longer than a 1-H segment (up
+# to 15 sequential models vs. 1), so submit them as their own array first at
+# normal priority, and submit the 1-H segments as a SEPARATE array afterward
+# with a higher --nice value -- this explicitly deprioritizes that job
+# whenever both are competing for the same limited concurrent-node budget,
+# rather than hoping submission order alone gets that ordering right. See
+# step 3 at the bottom of this file for the exact two-submission commands.
+# This split also lets each array get its own --time budget instead of one
+# placeholder covering both very different cost profiles.
 #
 # Before running this for real, do the ONE-TIME setup below (same env as
 # probe_array.sbatch -- skip if you already have the `catdd` mamba env from
@@ -31,34 +36,34 @@
 
 #SBATCH --time=12:00:00           # PLACEHOLDER -- override with --time= at submission
                                    # time for each of the two arrays separately (see
-                                   # step 3 at the bottom), since chain and independent
-                                   # tasks have very different cost profiles (a chain
-                                   # task always does the same ~15 underparam H's; an
-                                   # independent task's cost depends entirely on which
-                                   # single H it drew, from H=52 up to H=1000). With
+                                   # step 3 at the bottom), since a multi-H segment and
+                                   # a 1-H segment have very different cost profiles (a
+                                   # multi-H segment always does the same ~15
+                                   # underparam H's under today's default flags; a 1-H
+                                   # segment's cost depends entirely on which single H
+                                   # it drew, from H=52 up to H=1000). With
                                    # batch_size=32 that's 4000/32=125 steps/epoch, and
                                    # (for overparameterized H, no early stopping)
                                    # always 6000 epochs =~ 750K SGD steps for the
-                                   # single most expensive independent task (H=1000).
+                                   # single most expensive 1-H segment (H=1000).
                                    # DO NOT submit either array until you've run the
-                                   # calibration test below on BOTH a chain task and
-                                   # the H=1000 task, replaced this with real measured
-                                   # numbers (with margin) per array, and checked them
-                                   # against your partition's max walltime (e.g.
-                                   # `sinfo` or cluster docs).
+                                   # calibration test below on BOTH a multi-H segment
+                                   # and the H=1000 task, replaced this with real
+                                   # measured numbers (with margin) per array, and
+                                   # checked them against your partition's max
+                                   # walltime (e.g. `sinfo` or cluster docs).
 #SBATCH --mem=4G                  # H up to 1000 is still a tiny model (~800K params,
                                    # batch_size=32) -- 4G should be plenty, but bump
                                    # this if a task OOMs.
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus=1
-#SBATCH --array=0-9           # PLACEHOLDER, always override with --array= at
-                               # submission time -- defaults to just the 10 chain
-                               # tasks (2 lr x 1 batch_size x 5 seeds) since those
-                               # are the priority group. The 80 independent tasks
-                               # (2 lr x 1 batch_size x 5 seeds x 8 overparameterized
-                               # H's, task_id 10-89) get submitted as a separate,
-                               # deprioritized array -- see step 3 below.
+#SBATCH --array=0-44          # PLACEHOLDER, always override with --array= at
+                               # submission time -- defaults to the full 45-task
+                               # range under today's default flags (1 lr x 1
+                               # batch_size x 5 seeds x 9 segments, see the header
+                               # comment above for how to recompute this if
+                               # sweep_config's flags/grid ever change).
 #SBATCH -J catdd_full_sweep
 #SBATCH --output=slurm_logs/full_sweep_%A_%a.out
 #SBATCH --error=slurm_logs/full_sweep_%A_%a.err
@@ -89,32 +94,38 @@ cd "$SLURM_SUBMIT_DIR"   # mnist_dd/ directory you ran sbatch from
 CELL_NAME=$(python -c "
 from full_sweep import decode_task_id
 spec = decode_task_id(${SLURM_ARRAY_TASK_ID})
-h_part = f'_H{spec.H}' if spec.H is not None else '_chain'
-print(f'{spec.kind}_lr{spec.lr}_bs{spec.batch_size}_seed{spec.seed}{h_part}')
+kind = 'chain' if len(spec.H_list) > 1 else 'independent'
+h_part = f'_H{spec.H_list[0]}-{spec.H_list[-1]}' if len(spec.H_list) > 1 else f'_H{spec.H_list[0]}'
+print(f'{kind}_lr{spec.lr}_bs{spec.batch_size}_seed{spec.seed}{h_part}')
 ")
 scontrol update JobId="$SLURM_JOB_ID" JobName="$CELL_NAME"
 
 python full_sweep.py --task_id "$SLURM_ARRAY_TASK_ID"
 
 # --- Recommended rollout, don't jump straight to the full array ---
-# 1. Calibration test on ONE task of EACH kind -- their cost profiles are
+# These task_ids are for today's default flags (sweep_config.BELKIN_CONFIG=True,
+# REUSE_WEIGHTS_UNDERPARAM=True, REUSE_WEIGHTS_OVERPARAM=False) -- re-verify
+# with `python full_sweep.py --task_id N --dry_run` (or the SEGMENTS one-liner
+# in the header comment above) before trusting them if you've changed
+# sweep_config.py.
+# 1. Calibration test on ONE task of EACH size -- their cost profiles are
 #    unrelated, so timing one tells you nothing about the other:
 #      mkdir -p slurm_logs
-#      sbatch --array=0 --time=12:00:00 slurm/full_sweep_array.sbatch    # a chain task
-#      sbatch --array=17 --time=12:00:00 slurm/full_sweep_array.sbatch   # task_id 17 =
-#                                                                        # lr=0.001,seed=0,H=1000,
-#                                                                        # the single most
-#                                                                        # expensive independent task
+#      sbatch --array=0  --time=12:00:00 slurm/full_sweep_array.sbatch   # task_id 0 =
+#                                                                        # the 15-H underparam chain
+#      sbatch --array=8  --time=12:00:00 slurm/full_sweep_array.sbatch   # task_id 8 =
+#                                                                        # seed=0, H=1000, the single
+#                                                                        # most expensive 1-H segment
 #    Check progress with: squeue -u $USER   and inspect slurm_logs/*.out after.
-# 2. Once both succeed, note each kind's actual runtime (with margin) -- you'll
+# 2. Once both succeed, note each size's actual runtime (with margin) -- you'll
 #    use these as the two --time values below. Optionally submit a few more
-#    tasks of each kind (e.g. --array=1,5,9 and --array=20,50,89) to confirm
-#    consistency across different lr/seed/H combinations before committing to
-#    the full arrays.
-# 3. Submit the real thing as TWO SEPARATE arrays, chain first at normal
-#    priority, independent second with a higher --nice so it's explicitly
-#    deprioritized whenever both are competing for the same limited
+#    tasks of each size (e.g. --array=1,2,3,4 and --array=16,24,32,40) to
+#    confirm consistency across different seed/H combinations before
+#    committing to the full arrays.
+# 3. Submit the real thing as TWO SEPARATE arrays, the multi-H segment first at
+#    normal priority, the 1-H segments second with a higher --nice so they're
+#    explicitly deprioritized whenever both are competing for the same limited
 #    concurrent-node budget (replace <CHAIN_TIME> / <INDEP_TIME> with the
 #    measured numbers from step 2):
-#      sbatch --array=0-9   --time=06:00:00  slurm/full_sweep_array.sbatch
-#      sbatch --array=10-89 --time=00:30:00 --nice slurm/full_sweep_array.sbatch
+#      sbatch --array=0    --time=06:00:00  slurm/full_sweep_array.sbatch
+#      sbatch --array=1-44 --time=00:30:00 --nice slurm/full_sweep_array.sbatch
