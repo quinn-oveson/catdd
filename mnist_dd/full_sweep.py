@@ -39,6 +39,9 @@ run identically two ways:
 
 Sanity-check the whole mapping for free before spending any compute:
     for i in 0 1 2 ... ; do python full_sweep.py --task_id $i --dry_run; done
+Check recommended SLURM --mem/--time per segment (see resource_tier() below)
+with:
+    python -c "from full_sweep import SEGMENTS, resource_tier; [print(i, len(s), resource_tier(s)) for i, s in enumerate(SEGMENTS)]"
 """
 import argparse
 import os
@@ -85,6 +88,23 @@ def _build_segments():
 SEGMENTS = _build_segments()
 N_SEGMENTS = len(SEGMENTS)
 TOTAL_TASKS = N_LR * N_BS * N_SEEDS * N_SEGMENTS
+
+
+def resource_tier(H_list):
+    """Rough (mem_gb, time_hms) resource recommendation for a segment, from
+    memory/runtime measured on BYU FSL: a single H trains one model (~4G,
+    ~1h, generous); a full H_VALS-length chain trains every model in one
+    process without releasing GPU memory between them (~32G, ~12h, safe);
+    anything in between -- a partial chain -- measured ~16G/~6h (generous).
+    These are tiered from specific measured runs, not an exact formula for
+    arbitrary lengths -- recalibrate with `sacct` if H_VALS or the grid
+    changes substantially enough to move a segment far from these anchors.
+    """
+    if len(H_list) == 1:
+        return 4, "01:00:00"
+    if len(H_list) == len(H_VALS):
+        return 32, "12:00:00"
+    return 16, "06:00:00"
 
 
 def decode_task_id(task_id):

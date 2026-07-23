@@ -9,9 +9,15 @@
 # NOT fixed at "underparam block first, overparam block second" in every flag
 # combination (a segment can span the interpolation threshold), so don't
 # assume a hardcoded task_id split -- run this before submitting anything to
-# see the actual current segment sizes and where the expensive multi-H ones
-# land:
-#   python -c "from full_sweep import SEGMENTS; [print(i, len(s), s) for i, s in enumerate(SEGMENTS)]"
+# see the actual current segment sizes, where the expensive multi-H ones
+# land, and each segment's recommended --mem/--time (full_sweep.resource_tier(),
+# see below for where its numbers come from):
+#   python -c "
+#   from full_sweep import SEGMENTS, resource_tier
+#   for i, s in enumerate(SEGMENTS):
+#       mem, t = resource_tier(s)
+#       print(i, len(s), s, f'mem={mem}G time={t}')
+#   "
 # (segment index = task_id % len(SEGMENTS); under today's default
 # (sweep_config.BELKIN_CONFIG=True, REUSE_WEIGHTS_UNDERPARAM=True,
 # REUSE_WEIGHTS_OVERPARAM=False) that's 1 lr x 1 batch_size x 5 seeds x 9
@@ -19,15 +25,29 @@
 # are the 8 overparameterized H's (52,55,60,70,100,200,300,1000) each as
 # their own 1-H segment.)
 #
-# Multi-H segments are the priority: they take longer than a 1-H segment (up
-# to 15 sequential models vs. 1), so submit them as their own array first at
-# normal priority, and submit the 1-H segments as a SEPARATE array afterward
-# with a higher --nice value -- this explicitly deprioritizes that job
-# whenever both are competing for the same limited concurrent-node budget,
-# rather than hoping submission order alone gets that ordering right. See
-# step 3 at the bottom of this file for the exact two-submission commands.
-# This split also lets each array get its own --time budget instead of one
-# placeholder covering both very different cost profiles.
+# Memory scales with segment length: run_full_task() trains every H in a
+# segment inside one long-lived process without resetting CUDA's peak-memory
+# tracking between them, so a longer segment's peak allocation reflects the
+# accumulated models/optimizer state, not just the largest single model.
+# Measured on BYU FSL, three tiers (see full_sweep.resource_tier()):
+#   - 1-H segment (independent):        ~4G,  ~1h  (generous)
+#   - partial chain (today's 15-H one): ~16G, ~6h  (generous)
+#   - full chain (all len(H_VALS)):     ~32G, ~12h (safe)
+# A single shared --mem/--time can't be both cheap enough to not waste
+# allocation on 1-H tasks and large enough to not OOM/timeout chain tasks, so
+# --mem and --time are BOTH meant to be overridden per array submission (see
+# step 3), one array per resource tier actually present among today's
+# SEGMENTS.
+#
+# Larger segments are also the priority: they take longer than a 1-H segment
+# (up to 15+ sequential models vs. 1), so submit them as their own array
+# first at normal priority, and submit the 1-H segments as a SEPARATE array
+# afterward with a higher --nice value -- this explicitly deprioritizes that
+# job whenever both are competing for the same limited concurrent-node
+# budget, rather than hoping submission order alone gets that ordering
+# right. See step 3 at the bottom of this file for the exact submission
+# commands. This split also lets each array get its own --mem/--time budget
+# instead of one placeholder covering very different cost profiles.
 #
 # Before running this for real, do the ONE-TIME setup below (same env as
 # probe_array.sbatch -- skip if you already have the `catdd` mamba env from
@@ -52,9 +72,12 @@
                                    # measured numbers (with margin) per array, and
                                    # checked them against your partition's max
                                    # walltime (e.g. `sinfo` or cluster docs).
-#SBATCH --mem=4G                  # H up to 1000 is still a tiny model (~800K params,
-                                   # batch_size=32) -- 4G should be plenty, but bump
-                                   # this if a task OOMs.
+#SBATCH --mem=32G                 # PLACEHOLDER -- fail-safe default set to the
+                                   # largest tier (a full H_VALS-length chain, see
+                                   # the header comment above), so an unoverridden
+                                   # submission wastes allocation rather than OOMing.
+                                   # Override with --mem= per array submission to
+                                   # match that array's actual tier (see step 3).
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus=1
@@ -103,29 +126,35 @@ scontrol update JobId="$SLURM_JOB_ID" JobName="$CELL_NAME"
 python full_sweep.py --task_id "$SLURM_ARRAY_TASK_ID"
 
 # --- Recommended rollout, don't jump straight to the full array ---
-# These task_ids are for today's default flags (sweep_config.BELKIN_CONFIG=True,
-# REUSE_WEIGHTS_UNDERPARAM=True, REUSE_WEIGHTS_OVERPARAM=False) -- re-verify
-# with `python full_sweep.py --task_id N --dry_run` (or the SEGMENTS one-liner
-# in the header comment above) before trusting them if you've changed
-# sweep_config.py.
-# 1. Calibration test on ONE task of EACH size -- their cost profiles are
-#    unrelated, so timing one tells you nothing about the other:
+# These task_ids and tiers are for today's default flags (sweep_config.
+# BELKIN_CONFIG=True, REUSE_WEIGHTS_UNDERPARAM=True, REUSE_WEIGHTS_OVERPARAM=
+# False) -- re-verify with the SEGMENTS/resource_tier one-liner in the header
+# comment above before trusting them if you've changed sweep_config.py (e.g.
+# turning on REUSE_WEIGHTS_OVERPARAM adds a third, full-chain tier at
+# --mem=32G --time=12:00:00 -- submit that array too, at the highest
+# priority since it's the most expensive tier).
+# 1. Calibration test on ONE task of EACH tier present -- their cost profiles
+#    are unrelated, so timing one tells you nothing about the other:
 #      mkdir -p slurm_logs
-#      sbatch --array=0  --time=12:00:00 slurm/full_sweep_array.sbatch   # task_id 0 =
-#                                                                        # the 15-H underparam chain
-#      sbatch --array=8  --time=12:00:00 slurm/full_sweep_array.sbatch   # task_id 8 =
-#                                                                        # seed=0, H=1000, the single
-#                                                                        # most expensive 1-H segment
+#      sbatch --array=0 --time=06:00:00 --mem=16G slurm/full_sweep_array.sbatch   # task_id 0 =
+#                                                                                 # the 15-H underparam chain (partial-chain tier)
+#      sbatch --array=8 --time=01:00:00 --mem=4G  slurm/full_sweep_array.sbatch   # task_id 8 =
+#                                                                                 # seed=0, H=1000, the single
+#                                                                                 # most expensive 1-H segment (1-H tier)
 #    Check progress with: squeue -u $USER   and inspect slurm_logs/*.out after.
-# 2. Once both succeed, note each size's actual runtime (with margin) -- you'll
-#    use these as the two --time values below. Optionally submit a few more
-#    tasks of each size (e.g. --array=1,2,3,4 and --array=16,24,32,40) to
-#    confirm consistency across different seed/H combinations before
-#    committing to the full arrays.
-# 3. Submit the real thing as TWO SEPARATE arrays, the multi-H segment first at
-#    normal priority, the 1-H segments second with a higher --nice so they're
-#    explicitly deprioritized whenever both are competing for the same limited
-#    concurrent-node budget (replace <CHAIN_TIME> / <INDEP_TIME> with the
-#    measured numbers from step 2):
-#      sbatch --array=0    --time=06:00:00  slurm/full_sweep_array.sbatch
-#      sbatch --array=1-44 --time=00:30:00 --nice slurm/full_sweep_array.sbatch
+#    Check ACTUAL memory usage with `sacct -j <jobid> --format=JobID,MaxRSS,Elapsed`
+#    after each completes -- resource_tier()'s numbers are generous/safe
+#    estimates from a specific prior measurement, not a guarantee for your run.
+# 2. Once both succeed, note each tier's actual runtime/memory (with margin)
+#    -- you'll use these as the --time/--mem values below. Optionally submit
+#    a few more tasks of each tier (e.g. --array=1,2,3,4 and
+#    --array=16,24,32,40) to confirm consistency across different seed/H
+#    combinations before committing to the full arrays.
+# 3. Submit the real thing as one array PER TIER present, largest/most
+#    expensive tier first at normal priority, smaller tiers after with a
+#    higher --nice so they're explicitly deprioritized whenever multiple are
+#    competing for the same limited concurrent-node budget (replace
+#    <CHAIN_TIME>/<CHAIN_MEM> etc. with the measured numbers from step 2 --
+#    resource_tier()'s defaults shown here are a starting point):
+#      sbatch --array=0    --time=06:00:00 --mem=16G          slurm/full_sweep_array.sbatch   # partial-chain tier
+#      sbatch --array=1-44 --time=01:00:00 --mem=4G  --nice   slurm/full_sweep_array.sbatch   # 1-H tier
