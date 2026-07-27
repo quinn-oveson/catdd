@@ -1,7 +1,13 @@
 """Stage 2 full sweep: run the full Belkin H_VALS curve for the (lr, batch_size)
-candidates in sweep_config.LR_GRID/BATCH_SIZE_GRID (see sweep_config.py --
-BELKIN_CONFIG=True collapses this to the single best-fit candidate from the
-Stage 1 probe).
+candidates in sweep_config.LR_GRID/BATCH_SIZE_GRID (see sweep_config.py -- the
+preset named by $CATDD_SWEEP decides those, and `belkin`/`belkin_noreuse`
+collapse them to the single best-fit candidate from the Stage 1 probe).
+
+Each H's row records train/test zero-one, MSE and CE loss, how many epochs it
+ran, and the L2 norm of its weights both at initialization and after training
+(utils.weight_norms) -- the norms are what makes a `belkin` vs
+`belkin_noreuse` pair able to say whether the double-descent spike tracks
+weight norm.
 
 Task splitting is derived from sweep_config.REUSE_WEIGHTS_UNDERPARAM/
 REUSE_WEIGHTS_OVERPARAM via a per-H rule: H_VALS (sorted ascending) is
@@ -15,14 +21,15 @@ each other and are fully parallelizable.
 
 This means:
   - REUSE_WEIGHTS_UNDERPARAM=True, REUSE_WEIGHTS_OVERPARAM=False (Belkin's
-    own setup, the default): one segment covering all underparameterized
+    own setup, the `belkin` preset): one segment covering all underparameterized
     H's (a "chain" task) plus one singleton segment per overparameterized H
     (an "independent" task each) -- the interpolation threshold breaks the
     chain because the first overparameterized H's own flag is False.
   - Both True: a single segment spans ALL of H_VALS -- one fully serial
     chain per (lr, batch_size, seed), with weight reuse running continuously
     straight through the interpolation threshold.
-  - Both False: every H is its own singleton segment -- fully parallel.
+  - Both False (the `belkin_noreuse` and `custom` presets): every H is its own
+    singleton segment -- fully parallel.
   - REUSE_WEIGHTS_UNDERPARAM=False, REUSE_WEIGHTS_OVERPARAM=True: every
     underparameterized H is independent EXCEPT the last one, which gets
     folded into the same segment as the overparameterized chain (since the
@@ -37,11 +44,13 @@ run identically two ways:
   - as one SLURM array task, with --task_id set from $SLURM_ARRAY_TASK_ID
     (see slurm/full_sweep_array.sbatch)
 
-Sanity-check the whole mapping for free before spending any compute:
-    for i in 0 1 2 ... ; do python full_sweep.py --task_id $i --dry_run; done
+Sanity-check the whole mapping for free before spending any compute (every
+command below needs the same CATDD_SWEEP as the run it's describing, since the
+preset decides both the grid and the segments):
+    for i in 0 1 2 ... ; do CATDD_SWEEP=belkin python full_sweep.py --task_id $i --dry_run; done
 Check recommended SLURM --mem/--time per segment (see resource_tier() below)
 with:
-    python -c "from full_sweep import SEGMENTS, resource_tier; [print(i, len(s), resource_tier(s)) for i, s in enumerate(SEGMENTS)]"
+    CATDD_SWEEP=belkin python -c "from full_sweep import SEGMENTS, resource_tier; [print(i, len(s), resource_tier(s)) for i, s in enumerate(SEGMENTS)]"
 """
 import argparse
 import os
@@ -52,17 +61,23 @@ import pandas as pd
 import torch
 
 from config import N_TRAIN, K, H_VALS
-from sweep_config import LR_GRID, BATCH_SIZE_GRID, SEEDS, REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, LOSS_FUNC
+from sweep_config import (SWEEP_NAME, LR_GRID, BATCH_SIZE_GRID, SEEDS,
+                          REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, LOSS_FUNC)
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
-from utils import glorot_init, reuse_weights, num_params
+from utils import glorot_init, reuse_weights, num_params, weight_norms
 
 N_LR = len(LR_GRID)
 N_BS = len(BATCH_SIZE_GRID)
 N_SEEDS = len(SEEDS)
 
-RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "full_sweep")
+RESULTS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+# Per-preset, so two presets' task CSVs never collide -- both can be in the
+# SLURM queue at the same time (see sweep_config.py's docstring). Anything
+# needing results/ itself should use RESULTS_ROOT rather than walking up from
+# RESULTS_DIR, which is two levels deep.
+RESULTS_DIR = os.path.join(RESULTS_ROOT, "full_sweep", SWEEP_NAME)
 
 TaskSpec = namedtuple("TaskSpec", ["lr", "batch_size", "seed", "H_list"])
 
@@ -105,6 +120,42 @@ def resource_tier(H_list):
     if len(H_list) == len(H_VALS):
         return 32, "12:00:00"
     return 16, "06:00:00"
+
+
+def _compact_ranges(ids):
+    """Collapse a sorted list of ints into SLURM --array syntax: [1,2,3,5] -> '1-3,5'."""
+    parts = []
+    start = prev = ids[0]
+    for i in ids[1:]:
+        if i == prev + 1:
+            prev = i
+            continue
+        parts.append(f"{start}" if start == prev else f"{start}-{prev}")
+        start = prev = i
+    parts.append(f"{start}" if start == prev else f"{start}-{prev}")
+    return ",".join(parts)
+
+
+def slurm_array_specs():
+    """Group every task_id by its resource tier, most expensive tier first.
+
+    Returns [(array_spec, mem_gb, time_hms, n_tasks), ...], where array_spec is a
+    compacted SLURM --array string. One entry per tier present = one array to
+    submit, since --mem/--time are per-submission and the tiers have very
+    different cost profiles.
+
+    Derived from SEGMENTS rather than written by hand, because the task_ids of a
+    given tier are NOT a contiguous block: segment index is the fastest-varying
+    axis in decode_task_id, so e.g. the belkin preset's 15-H chain lands on
+    task_ids 0,9,18,27,36 (one per seed), not on 0 alone. A hand-written range
+    gets that wrong and silently under-provisions the chain tasks.
+    """
+    by_tier = {}
+    for task_id in range(TOTAL_TASKS):
+        tier = resource_tier(SEGMENTS[task_id % N_SEGMENTS])
+        by_tier.setdefault(tier, []).append(task_id)
+    return [(_compact_ranges(ids), mem_gb, time_hms, len(ids))
+            for (mem_gb, time_hms), ids in sorted(by_tier.items(), reverse=True)]
 
 
 def decode_task_id(task_id):
@@ -156,6 +207,12 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         else:
             reuse_weights(smaller_model, model, H_prev)
 
+        # Before the first SGD step: with weight reuse this carries the
+        # previous (trained, larger-norm) model's weights, without it it's
+        # Glorot scale -- the two are what the reuse-vs-weight-norm comparison
+        # is actually contrasting, so record it, not just the trained norm.
+        init_weight_norm = weight_norms(model)["weight_norm"]
+
         _, epoch_losses = train_model(model, X_train, y_train_onehot, y_train, is_underparam, lr=lr, batch_size=batch_size, loss_func=LOSS_FUNC)
         train_zeroone, train_mse, train_ce = evaluate(model, X_train, y_train_onehot, y_train)
         test_zeroone, test_mse, test_ce = evaluate(model, X_test, y_test_onehot, y_test)
@@ -166,6 +223,8 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
             "train_MSE": train_mse, "test_MSE": test_mse,
             "train_CE": train_ce, "test_CE": test_ce,
             "n_epochs": len(epoch_losses),
+            "init_weight_norm": init_weight_norm,
+            **weight_norms(model),
         })
         smaller_model = model
         H_prev = H
@@ -184,7 +243,7 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run one Stage 2 full-sweep task (one weight-reuse segment).")
-    parser.add_argument("--task_id", type=int, required=True,
+    parser.add_argument("--task_id", type=int, default=None,
                          help=f"Index in [0, {TOTAL_TASKS}), one per (lr, batch_size, seed, segment) -- "
                               f"see full_sweep.SEGMENTS for the current segment list.")
     parser.add_argument("--output_dir", type=str, default=RESULTS_DIR)
@@ -194,7 +253,20 @@ if __name__ == "__main__":
                          help="Override to full-batch training (batch_size=N_TRAIN) for fast local "
                               "testing. The cluster run should NOT use this -- the batch_size grid "
                               "value is the actual candidate to use.")
+    parser.add_argument("--print_array_specs", action="store_true",
+                         help="Print one 'array_spec mem_gb time n_tasks' line per resource tier for "
+                              "this preset, most expensive first, and exit -- the --array/--mem/--time "
+                              "to submit. Machine-readable (whitespace-separated); consumed by "
+                              "slurm/submit_weight_norm_experiment.sh.")
     args = parser.parse_args()
+
+    if args.print_array_specs:
+        for array_spec, mem_gb, time_hms, n_tasks in slurm_array_specs():
+            print(f"{array_spec} {mem_gb} {time_hms} {n_tasks}")
+        raise SystemExit(0)
+
+    if args.task_id is None:
+        parser.error("--task_id is required (unless --print_array_specs is given)")
 
     spec = decode_task_id(args.task_id)
     lr, batch_size, seed = spec.lr, spec.batch_size, spec.seed
@@ -202,8 +274,8 @@ if __name__ == "__main__":
         batch_size = N_TRAIN
     kind = "chain" if len(spec.H_list) > 1 else "independent"
     if args.dry_run:
-        print(f"task_id={args.task_id} -> kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}")
+        print(f"[{SWEEP_NAME}] task_id={args.task_id} -> kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}")
     else:
-        print(f"task_id={args.task_id}: kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}", flush=True)
+        print(f"[{SWEEP_NAME}] task_id={args.task_id}: kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}", flush=True)
         out_path = run_full_task(args.task_id, args.output_dir, full_batch=args.full_batch)
         print(f"Wrote {out_path}")

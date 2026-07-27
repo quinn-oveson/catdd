@@ -1,6 +1,7 @@
 """Local (non-cluster) driver for the Stage 2 full sweep.
 
-Runs every (lr, batch_size, seed) cell from full_sweep.py's grid sequentially,
+Runs the sweep preset named by $CATDD_SWEEP (see sweep_config.py; defaults to
+`custom`). Runs every (lr, batch_size, seed) cell from full_sweep.py's grid sequentially,
 each as its own subprocess invocation of `full_sweep.py --task_id N` -- the
 exact same code path a SLURM array task will run later, so anything broken
 here would have been broken there too.
@@ -27,6 +28,7 @@ import subprocess
 import sys
 
 from full_sweep import RESULTS_DIR, TOTAL_TASKS, decode_task_id
+from sweep_config import SWEEP_NAME
 
 FULL_SWEEP_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "full_sweep.py")
 FAILED_LOG = os.path.join(RESULTS_DIR, "failed_tasks.txt")
@@ -34,6 +36,8 @@ FAILED_LOG = os.path.join(RESULTS_DIR, "failed_tasks.txt")
 
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
+    # Subprocesses inherit CATDD_SWEEP, so they resolve to this same preset.
+    print(f"Sweep preset {SWEEP_NAME} ({TOTAL_TASKS} tasks) -> {RESULTS_DIR}")
     failed = []
 
     for task_id in range(TOTAL_TASKS):

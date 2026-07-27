@@ -2,7 +2,8 @@
 each with test in blue and train in orange) and overlay it with one full-sweep
 candidate's own test/train curves, for a direct visual double-descent comparison.
 
-Reads results/belkin_digitized.csv (dashed lines) and results/full_sweep_summary.csv
+Reads results/belkin_digitized.csv (dashed lines) and, for the $CATDD_SWEEP preset,
+results/full_sweep_summary_<preset>.csv
 (solid lines, filtered down to a single --lr/--batch_size row -- default
 lr=0.0005, batch_size=32). Belkin is black (test)/red (train) and ours is
 blue (test)/orange (train), plus Belkin's curves are dashed and ours are
@@ -16,13 +17,15 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.ticker import ScalarFormatter
 
+from aggregate_full_sweep import SUMMARY_PATH
 from config import K, N_TRAIN
-from full_sweep import RESULTS_DIR
+from full_sweep import RESULTS_ROOT
+from sweep_config import SWEEP_NAME
 from utils import num_params
 
-SUMMARY_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "full_sweep_summary.csv")
-BELKIN_DIGITIZED_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "belkin_digitized.csv")
-OUT_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "full_sweep_belkin_style.png")
+BELKIN_DIGITIZED_PATH = os.path.join(RESULTS_ROOT, "belkin_digitized.csv")
+# Preset-qualified, so two presets' plots don't overwrite each other.
+OUT_PATH = os.path.join(RESULTS_ROOT, f"full_sweep_belkin_style_{SWEEP_NAME}.png")
 
 INTERPOLATION_THRESHOLD = K * N_TRAIN / 1e3  # params where num_params(H) == K*N_TRAIN
 
@@ -35,7 +38,8 @@ BELKIN_TRAIN_COLOR = "tab:red"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary_path", default=SUMMARY_PATH,
-                         help="Which full-sweep summary CSV to plot (default: results/full_sweep_summary.csv).")
+                         help="Which full-sweep summary CSV to plot (default: the current "
+                              "$CATDD_SWEEP preset's results/full_sweep_summary_<preset>.csv).")
     parser.add_argument("--out_path", default=OUT_PATH,
                          help="Path to save the plot to")
     parser.add_argument("--lr", type=float, default=0.0005,

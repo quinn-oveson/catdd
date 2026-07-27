@@ -21,11 +21,11 @@ import pandas as pd
 from matplotlib.ticker import ScalarFormatter
 
 from config import K, N_TRAIN
-from full_sweep import RESULTS_DIR
+from full_sweep import RESULTS_ROOT
 from utils import num_params
 
-BELKIN_DIGITIZED_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "belkin_digitized.csv")
-OUT_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "full_sweep_compare_belkin_style.png")
+BELKIN_DIGITIZED_PATH = os.path.join(RESULTS_ROOT, "belkin_digitized.csv")
+OUT_PATH = os.path.join(RESULTS_ROOT, "full_sweep_compare_belkin_style.png")
 
 INTERPOLATION_THRESHOLD = K * N_TRAIN / 1e3  # params where num_params(H) == K*N_TRAIN
 

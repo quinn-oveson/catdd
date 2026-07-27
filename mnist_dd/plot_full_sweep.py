@@ -1,8 +1,9 @@
 """Plot Stage 2 full-sweep results, for visual comparison against Belkin's full curve
 (or against each other, with --include_belkin=False).
 
-Reads results/full_sweep_summary.csv (built by aggregate_full_sweep.py -- run that
-first) and plots each (lr, batch_size) candidate's mean test loss at whichever H's
+Reads results/full_sweep_summary_<preset>.csv for the $CATDD_SWEEP preset (built by
+aggregate_full_sweep.py -- run that first) and plots each (lr, batch_size)
+candidate's mean test loss at whichever H's
 are present in the summary, against Belkin's full test zero-one loss curve digitized
 off his Fig. 3 (results/belkin_digitized.csv). Same format as plot_probe.py, but a
 separate script/output so it doesn't overwrite results/probe_vs_belkin.png -- the two
@@ -11,8 +12,9 @@ summary may only have the independent overparameterized H's aggregated so far,
 before the chain/underparameterized H's are done), so H's to plot are read directly
 off the summary's own columns rather than assumed from config.H_VALS.
 
---metric selects which loss to plot (zeroone or CE); Belkin's digitized curve is
-only available in zeroone terms, so --include_belkin=True requires --metric=zeroone.
+--metric selects what to plot: test zero-one loss, test cross-entropy loss, or the
+trained model's weight norm. Belkin's digitized curve is only available in zeroone
+terms, so --include_belkin=True requires --metric=zeroone.
 Candidate lines use matplotlib's default color cycle rather than a fixed per-lr
 color, since which lr values are present varies by summary CSV.
 """
@@ -24,17 +26,23 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.ticker import ScalarFormatter
 
+from aggregate_full_sweep import SUMMARY_PATH
 from config import K, N_TRAIN
-from full_sweep import RESULTS_DIR
+from full_sweep import RESULTS_ROOT
 from utils import num_params
 
-SUMMARY_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "full_sweep_summary.csv")
-BELKIN_DIGITIZED_PATH = os.path.join(os.path.dirname(RESULTS_DIR), "belkin_digitized.csv")
+BELKIN_DIGITIZED_PATH = os.path.join(RESULTS_ROOT, "belkin_digitized.csv")
 
 INTERPOLATION_THRESHOLD = K * N_TRAIN / 1e3  # params where num_params(H) == K*N_TRAIN
 
-METRIC_YLABEL = {"zeroone": "Zero-one loss (%)", "CE": "Cross entropy loss"}
-METRIC_SCALE = {"zeroone": 100, "CE": 1}  # zeroone stored as a fraction; CE already in its native units
+# Which summary column each --metric reads. Losses have a train/test split;
+# a weight norm is a property of the model itself, so it has no test_ prefix
+# -- hence the indirection rather than a hardcoded f"test_{metric}".
+METRIC_COLUMN = {"zeroone": "test_zeroone", "CE": "test_CE", "weight_norm": "weight_norm"}
+METRIC_YLABEL = {"zeroone": "Zero-one loss (%)", "CE": "Cross entropy loss",
+                 "weight_norm": "L2 norm of trained weights"}
+# zeroone stored as a fraction; CE and the weight norm are already in their native units
+METRIC_SCALE = {"zeroone": 100, "CE": 1, "weight_norm": 1}
 
 
 def str2bool(v):
@@ -48,9 +56,11 @@ def str2bool(v):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary_path", default=SUMMARY_PATH,
-                         help="Which full-sweep summary CSV to plot (default: results/full_sweep_summary.csv).")
-    parser.add_argument("--metric", choices=["zeroone", "CE"], default="zeroone",
-                         help="Which test loss to plot (default: zeroone).")
+                         help="Which full-sweep summary CSV to plot (default: the current "
+                              "$CATDD_SWEEP preset's results/full_sweep_summary_<preset>.csv).")
+    parser.add_argument("--metric", choices=list(METRIC_COLUMN), default="zeroone",
+                         help="Which quantity to plot -- test zero-one loss, test cross-entropy "
+                              "loss, or the trained model's weight norm (default: zeroone).")
     parser.add_argument("--include_belkin", type=str2bool, default=None,
                          help="Overlay Belkin's digitized Fig. 3 curve (default: True for --metric=zeroone, "
                               "False otherwise -- Belkin's curve is only digitized in zeroone terms).")
@@ -93,22 +103,23 @@ def main():
             raise SystemExit(f"{BELKIN_DIGITIZED_PATH} not found -- run extract_belkin_markers.py first.")
         belkin = pd.read_csv(BELKIN_DIGITIZED_PATH).sort_values("H")
 
-    h_column_re = re.compile(rf"^H(\d+)_test_{args.metric}_mean$")
+    column = METRIC_COLUMN[args.metric]
+    h_column_re = re.compile(rf"^H(\d+)_{column}_mean$")
     h_vals = sorted(int(m.group(1)) for c in summary.columns if (m := h_column_re.match(c)))
     if not h_vals:
-        raise SystemExit(f"No H*_test_{args.metric}_mean columns found in {args.summary_path}.")
+        raise SystemExit(f"No H*_{column}_mean columns found in {args.summary_path}.")
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
     scale = METRIC_SCALE[args.metric]
     x_sweep = [num_params(h) / 1e3 for h in h_vals]
     for _, row in summary.iterrows():
-        y = [row[f"H{h}_test_{args.metric}_mean"] * scale for h in h_vals]
+        y = [row[f"H{h}_{column}_mean"] * scale for h in h_vals]
         label = f"lr={row['lr']}, bs={row['batch_size']}"
         if args.no_errorbars:
             ax.plot(x_sweep, y, marker="D", ms=4, label=label)
         else:
-            yerr = [row[f"H{h}_test_{args.metric}_std"] * scale for h in h_vals]
+            yerr = [row[f"H{h}_{column}_std"] * scale for h in h_vals]
             ax.errorbar(x_sweep, y, yerr=yerr, marker="D", ms=4, capsize=3, label=label)
 
     if include_belkin:
@@ -137,10 +148,13 @@ def main():
     ax.ticklabel_format(style="plain", axis="x")
 
     fig.tight_layout()
+    # Name the output after the summary it came from and the metric plotted --
+    # every sweep preset has its own summary, so an unqualified name would have
+    # them silently overwriting each other's plots.
     stem = os.path.splitext(os.path.basename(args.summary_path))[0]
+    stem = stem[len("full_sweep_summary_"):] if stem.startswith("full_sweep_summary_") else stem
     prefix = "full_sweep_vs_belkin" if include_belkin else "full_sweep"
-    suffix = "" if args.summary_path == SUMMARY_PATH and args.metric == "zeroone" else f"_{stem}_{args.metric}"
-    out_path = os.path.join(os.path.dirname(RESULTS_DIR), f"{prefix}{suffix}.png")
+    out_path = os.path.join(RESULTS_ROOT, f"{prefix}_{stem}_{args.metric}.png")
     fig.savefig(out_path, dpi=150)
     print(f"Wrote {out_path}")
 
