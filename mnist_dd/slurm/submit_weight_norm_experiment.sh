@@ -63,6 +63,43 @@ for f in "$ARRAY_SBATCH" "$FINALIZE_SBATCH"; do
     [[ -f "$f" ]] || { echo "ERROR: $MNIST_DD/$f not found." >&2; exit 1; }
 done
 
+# Run this on the FSL login node, not the laptop. Skipped for --dry-run, which
+# submits nothing -- previewing the plan from the laptop before ssh'ing is fine.
+if [[ "$DRY_RUN" == false ]] && ! command -v sbatch > /dev/null; then
+    echo "ERROR: sbatch not found -- this has to run on the cluster login node." >&2
+    echo "    ssh <netid>@ssh.rc.byu.edu" >&2
+    exit 1
+fi
+
+# Resolve every preset's tiers ONCE, here, and reuse the output below for both
+# the summary table and the submission loop.
+#
+# Worth the care: each call is a fresh `python full_sweep.py`, which imports
+# torch, and on a shared cluster filesystem a cold torch import costs tens of
+# seconds -- vastly more than the ~1s it costs on a laptop. Calling it per-loop
+# instead of caching made the whole script noticeably slow on the login node.
+#
+# This also doubles as the env check. full_sweep.py imports torch, so if the
+# catdd env isn't active here (not just inside the jobs) this fails now, with
+# the actual error shown -- rather than silently yielding zero tiers, submitting
+# zero arrays, and falling over later on a malformed empty --dependency.
+SPECS=()
+for preset in "${PRESETS[@]}"; do
+    if ! out=$(CATDD_SWEEP="$preset" python full_sweep.py --print_array_specs 2>&1); then
+        echo "ERROR: could not compute array specs for preset '$preset':" >&2
+        echo "$out" | sed 's/^/    /' >&2
+        echo "  If that's a ModuleNotFoundError, activate the env first:" >&2
+        echo "    module load miniforge3 && mamba activate catdd" >&2
+        echo "  (module loads do not persist across SSH sessions -- redo them in each new shell)" >&2
+        exit 1
+    fi
+    if [[ -z "$out" ]]; then
+        echo "ERROR: preset '$preset' produced no array specs -- nothing to submit." >&2
+        exit 1
+    fi
+    SPECS+=("$out")
+done
+
 # SLURM will not create the log directory, and silently fails the job if it's missing.
 mkdir -p slurm_logs
 
@@ -106,10 +143,10 @@ echo "Submitting the weight-norm experiment from $MNIST_DD"
 [[ -n "${EXCLUDE_NODES:-}" ]] && echo "Excluding nodes: $EXCLUDE_NODES"
 echo
 printf '%-16s %-32s %6s %10s %7s\n' PRESET ARRAY MEM TIME TASKS
-for preset in "${PRESETS[@]}"; do
+for i in "${!PRESETS[@]}"; do
     while read -r array_spec mem_gb time_hms n_tasks; do
-        printf '%-16s %-32s %5sG %10s %7s\n' "$preset" "$array_spec" "$mem_gb" "$time_hms" "$n_tasks"
-    done < <(CATDD_SWEEP="$preset" python full_sweep.py --print_array_specs)
+        printf '%-16s %-32s %5sG %10s %7s\n' "${PRESETS[$i]}" "$array_spec" "$mem_gb" "$time_hms" "$n_tasks"
+    done <<< "${SPECS[$i]}"
 done
 echo
 
@@ -121,7 +158,8 @@ echo
 
 JOB_IDS=()
 FIRST=true
-for preset in "${PRESETS[@]}"; do
+for i in "${!PRESETS[@]}"; do
+    preset="${PRESETS[$i]}"
     while read -r array_spec mem_gb time_hms n_tasks; do
         nice_arg=()
         if [[ "$FIRST" == true ]]; then FIRST=false; else nice_arg=(--nice); fi
@@ -144,7 +182,7 @@ for preset in "${PRESETS[@]}"; do
             JOB_IDS+=("$job_id")
             echo "Submitted $preset ${array_spec} (${n_tasks} tasks, ${mem_gb}G, ${time_hms}) -> job $job_id"
         fi
-    done < <(CATDD_SWEEP="$preset" python full_sweep.py --print_array_specs)
+    done <<< "${SPECS[$i]}"
 done
 
 # --- Post-processing, gated on every training task succeeding ---
@@ -154,6 +192,12 @@ if [[ "$DRY_RUN" == true ]]; then
     echo
     echo "(--dry-run: nothing was submitted)"
     exit 0
+fi
+
+if [[ ${#JOB_IDS[@]} -eq 0 ]]; then
+    echo "ERROR: no training arrays were submitted -- refusing to submit the finalize job." >&2
+    echo "  Check: CATDD_SWEEP=belkin python full_sweep.py --print_array_specs" >&2
+    exit 1
 fi
 
 dependency=$(IFS=:; echo "${JOB_IDS[*]}")
