@@ -62,11 +62,13 @@ import torch
 
 from config import N_TRAIN, K, H_VALS
 from sweep_config import (SWEEP_NAME, LR_GRID, BATCH_SIZE_GRID, SEEDS,
-                          REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM, LOSS_FUNC)
+                          REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM,
+                          NORMALIZE_REUSED_WEIGHTS, LOSS_FUNC)
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
-from utils import glorot_init, reuse_weights, num_params, weight_norms
+from utils import (glorot_init, reuse_weights, num_params, weight_norms,
+                   normalize_to_glorot_norm)
 
 N_LR = len(LR_GRID)
 N_BS = len(BATCH_SIZE_GRID)
@@ -206,6 +208,10 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
             glorot_init(model)
         else:
             reuse_weights(smaller_model, model, H_prev)
+            if NORMALIZE_REUSED_WEIGHTS:
+                # Keep the inherited directions, drop the inherited scale --
+                # only meaningful on a reused model, hence inside this branch.
+                normalize_to_glorot_norm(model)
 
         # Before the first SGD step: with weight reuse this carries the
         # previous (trained, larger-norm) model's weights, without it it's

@@ -40,6 +40,16 @@ Presets:
                   isolates weight reuse as the single independent variable,
                   for testing whether the double-descent spike at the
                   interpolation threshold tracks weight norm.
+  belkin_reuse_normalized
+                  Identical to `belkin` -- reuse and all -- except each reused
+                  model is rescaled to a fresh init's norm before training
+                  (per weight matrix, biases zeroed; see
+                  utils.normalize_to_glorot_norm). Keeps the directions reuse
+                  carries, drops the inflated scale, so its init_weight_norm
+                  matches `belkin_noreuse` exactly. The third arm that
+                  separates "large norm" from "reused directions": if the
+                  spike vanishes here, norm was the cause; if it survives,
+                  norm was only a correlate of whatever else reuse carries.
   custom          Exploratory sweeps beyond Belkin's own setup (currently the
                   cross-entropy lr x batch_size grid search). Edit freely --
                   this is the one preset meant to be changed in place.
@@ -71,6 +81,7 @@ _BELKIN = dict(
     SEEDS=list(range(5)),  # Belkin averages over 5 trials
     REUSE_WEIGHTS_UNDERPARAM=True,
     REUSE_WEIGHTS_OVERPARAM=False,
+    NORMALIZE_REUSED_WEIGHTS=False,
     DECAY_UNDERPARAM=True,
     DECAY_OVERPARAM=False,
     STOP_UNDERPARAM=True,
@@ -84,6 +95,18 @@ _BELKIN = dict(
 # rather than spelled out again, so the two presets provably differ in this one
 # flag and nothing else -- editing _BELKIN moves both together.
 _BELKIN_NOREUSE = {**_BELKIN, "REUSE_WEIGHTS_UNDERPARAM": False}
+
+# The third arm, separating "large norm" from "reused directions". Reuse is ON
+# exactly as in `belkin` -- same chain, same inherited weights -- but each
+# reused model is rescaled to a fresh init's norm before training
+# (utils.normalize_to_glorot_norm), so it keeps the directions it inherited
+# without the inflated scale. Its init_weight_norm curve should lie exactly on
+# `belkin_noreuse`'s, while its weights point where `belkin`'s do.
+#
+# Reading the result: if the double-descent spike DISAPPEARS here, the norm was
+# the culprit. If it SURVIVES, the spike comes from something else reuse
+# carries -- the directions / the particular basin -- and norm was a correlate.
+_BELKIN_REUSE_NORMALIZED = {**_BELKIN, "NORMALIZE_REUSED_WEIGHTS": True}
 
 # NOTE: the lr/batch-size GRIDS below belong to `custom` only. Neither Belkin
 # preset above has a grid -- both are pinned to the single (BELKIN_LR,
@@ -105,6 +128,7 @@ _CUSTOM = dict(
     SEEDS=list(range(5)),
     REUSE_WEIGHTS_UNDERPARAM=False,
     REUSE_WEIGHTS_OVERPARAM=False,
+    NORMALIZE_REUSED_WEIGHTS=False,
     DECAY_UNDERPARAM=True,
     DECAY_OVERPARAM=True,
     STOP_UNDERPARAM=True,
@@ -115,6 +139,7 @@ _CUSTOM = dict(
 PRESETS = {
     "belkin": _BELKIN,
     "belkin_noreuse": _BELKIN_NOREUSE,
+    "belkin_reuse_normalized": _BELKIN_REUSE_NORMALIZED,
     "custom": _CUSTOM,
 }
 
@@ -132,6 +157,7 @@ BATCH_SIZE_GRID = _preset["BATCH_SIZE_GRID"]
 SEEDS = _preset["SEEDS"]
 REUSE_WEIGHTS_UNDERPARAM = _preset["REUSE_WEIGHTS_UNDERPARAM"]
 REUSE_WEIGHTS_OVERPARAM = _preset["REUSE_WEIGHTS_OVERPARAM"]
+NORMALIZE_REUSED_WEIGHTS = _preset["NORMALIZE_REUSED_WEIGHTS"]
 DECAY_UNDERPARAM = _preset["DECAY_UNDERPARAM"]
 DECAY_OVERPARAM = _preset["DECAY_OVERPARAM"]
 STOP_UNDERPARAM = _preset["STOP_UNDERPARAM"]
