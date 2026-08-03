@@ -1,3 +1,5 @@
+import copy
+
 import torch.nn as nn
 import torch
 from config import VAR, D, K
@@ -83,3 +85,76 @@ def weight_norms(model):
 
 def num_params(H):
     return (D + 1) * H + (H + 1) * K
+
+def balance_mlp(model, eps=1e-12):
+    """
+    Rescale each hidden unit of a 1-hidden-layer ReLU MLP to its minimum-norm,
+    function-preserving representative (incoming norm == outgoing norm).
+    """
+    with torch.no_grad():
+        W_1 = model.hidden.weight
+        b_1 = model.hidden.bias
+        W_2 = model.output.weight
+        p = torch.sqrt((W_1**2).sum(dim=1) + b_1**2)
+        q = W_2.norm(dim=0)
+        alive = (p > eps) & (q > eps)
+        c = torch.ones_like(p)
+        c[alive] = torch.sqrt(q[alive] / p[alive])
+
+        W_1.mul_(c.unsqueeze(1))
+        b_1.mul_(c)
+        W_2.mul_((1.0 / c).unsqueeze(0))
+
+def min_achievable_norm(model):
+    """
+    Smallest total weight norm any function-preserving rescaling can reach,
+    attained by balance_mlp. Minimises per hidden unit, so it sits at or below
+    the single-factor orbit's floor of sqrt(2*sqrt(A*B) + C).
+    """
+    with torch.no_grad():
+        p = torch.sqrt((model.hidden.weight**2).sum(dim=1) + model.hidden.bias**2)
+        q = model.output.weight.norm(dim=0)
+        return torch.sqrt(2 * (p * q).sum() + (model.output.bias**2).sum()).item()
+
+def rescale_to_norm(model, target):
+    """
+    Scale a 1-hidden-layer ReLU MLP to a total weight norm of `target` without
+    changing the function it computes. Of the two solutions, takes the
+    hidden-heavy one. Raises if `target` is below min_achievable_norm(model).
+    """
+    balance_mlp(model)   # canonical gauge, so the result depends only on the function
+    with torch.no_grad():
+        A = (model.hidden.weight**2).sum() + (model.hidden.bias**2).sum()
+        B = (model.output.weight**2).sum()
+        C = (model.output.bias**2).sum()
+
+        disc = (target**2 - C)**2 - 4 * A * B
+        if disc < 0:
+            raise ValueError(f"target norm {target:.4f} is below the minimum "
+                             f"achievable {min_achievable_norm(model):.4f}")
+        t = torch.sqrt(((target**2 - C) + torch.sqrt(disc)) / (2 * A))
+
+        model.hidden.weight.mul_(t)
+        model.hidden.bias.mul_(t)
+        model.output.weight.mul_(1.0 / t)
+
+def check_function_preserved(model, transform=balance_mlp, n=64, rtol=1e-4, verbose=True):
+    device = next(model.parameters()).device
+    probe = copy.deepcopy(model)
+    x = torch.randn(n, model.hidden.in_features, device=device)
+
+    with torch.no_grad():
+        before = model(x)
+        transform(probe)
+        after = probe(x)
+
+    max_diff = (before - after).abs().max().item()
+    scale = before.abs().max().item()
+    rel_diff = max_diff / scale if scale > 0 else max_diff
+    if verbose:
+        print(f"max output difference after {transform.__name__}: "
+              f"{max_diff:.2e} absolute, {rel_diff:.2e} relative")
+    assert rel_diff <= rtol, (
+        f"{transform.__name__} changed the function: {rel_diff:.2e} relative "
+        f"> rtol={rtol:.0e} -- check tensor axes!")
+    return rel_diff

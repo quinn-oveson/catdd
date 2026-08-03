@@ -63,12 +63,13 @@ import torch
 from config import N_TRAIN, K, H_VALS
 from sweep_config import (SWEEP_NAME, LR_GRID, BATCH_SIZE_GRID, SEEDS,
                           REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM,
-                          NORMALIZE_REUSED_WEIGHTS, LOSS_FUNC)
+                          NORMALIZE_REUSED_WEIGHTS, BALANCE_INIT,
+                          INIT_NORM_TARGETS, LOSS_FUNC)
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
 from utils import (glorot_init, reuse_weights, num_params, weight_norms,
-                   normalize_to_glorot_norm)
+                   normalize_to_glorot_norm, rescale_to_norm, balance_mlp)
 
 N_LR = len(LR_GRID)
 N_BS = len(BATCH_SIZE_GRID)
@@ -191,6 +192,10 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         batch_size = N_TRAIN
     device = get_device()
 
+    # data.py seeds its own generator for the subset; this fixes the weight
+    # inits and batch order, which otherwise come from OS entropy.
+    torch.manual_seed(seed)
+
     X_train, y_train, X_test, y_test = load_mnist_subset(n=N_TRAIN, seed=seed)
     X_train, y_train = X_train.to(device), y_train.to(device)
     X_test, y_test = X_test.to(device), y_test.to(device)
@@ -212,6 +217,13 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
                 # Keep the inherited directions, drop the inherited scale --
                 # only meaningful on a reused model, hence inside this branch.
                 normalize_to_glorot_norm(model)
+
+        # Outside the branch: both set the init norm without touching the
+        # function, so they apply to reused and fresh inits alike.
+        if BALANCE_INIT:
+            balance_mlp(model)
+        if INIT_NORM_TARGETS is not None:
+            rescale_to_norm(model, INIT_NORM_TARGETS[H])
 
         # Before the first SGD step: with weight reuse this carries the
         # previous (trained, larger-norm) model's weights, without it it's

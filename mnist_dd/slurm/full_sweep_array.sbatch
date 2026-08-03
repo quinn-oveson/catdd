@@ -146,7 +146,15 @@ kind = 'chain' if len(spec.H_list) > 1 else 'independent'
 h_part = f'_H{spec.H_list[0]}-{spec.H_list[-1]}' if len(spec.H_list) > 1 else f'_H{spec.H_list[0]}'
 print(f'{SWEEP_NAME}_{kind}_lr{spec.lr}_bs{spec.batch_size}_seed{spec.seed}{h_part}')
 ")
-scontrol update JobId="$SLURM_JOB_ID" JobName="$CELL_NAME"
+# Address the array ELEMENT explicitly as <arrayjobid>_<taskid>, not via
+# $SLURM_JOB_ID. Observed 2026-08-03 on job 13029191 (belkin_reuse_normalized):
+# tasks _27 and _36 both ended up named "..._seed4_H4-50", i.e. one element's
+# rename landed on a sibling. Only the LABEL was wrong -- the training below
+# reads $SLURM_ARRAY_TASK_ID directly and never consults the name, and
+# task027.csv was verified to hold seed 3 as it should -- but with several
+# presets in the queue at once the squeue names are the only way to tell the
+# arrays apart, so they need to be right.
+scontrol update JobId="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}" JobName="$CELL_NAME"
 
 python full_sweep.py --task_id "$SLURM_ARRAY_TASK_ID"
 

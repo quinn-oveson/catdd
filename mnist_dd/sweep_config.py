@@ -50,6 +50,14 @@ Presets:
                   separates "large norm" from "reused directions": if the
                   spike vanishes here, norm was the cause; if it survives,
                   norm was only a correlate of whatever else reuse carries.
+  belkin_reuse_balanced
+                  `belkin` with every init balanced to its minimum-norm
+                  representative (utils.balance_mlp) before training -- same
+                  function, lowest norm that function admits.
+  belkin_noreuse_rescaled
+                  `belkin_noreuse` with every init rescaled, without changing
+                  the function it computes, to the norm `belkin` measured at
+                  that H (utils.rescale_to_norm, BELKIN_INIT_NORMS below).
   belkin_wd<v>    Identical to `belkin` -- reuse on, weights untouched -- except
                   SGD carries a WEIGHT_DECAY of <v> (see WEIGHT_DECAY_ARMS
                   below for the values actually registered). Tests whether
@@ -100,11 +108,13 @@ _BELKIN = dict(
     REUSE_WEIGHTS_UNDERPARAM=True,
     REUSE_WEIGHTS_OVERPARAM=False,
     NORMALIZE_REUSED_WEIGHTS=False,
+    BALANCE_INIT=False,
     DECAY_UNDERPARAM=True,
     DECAY_OVERPARAM=False,
     STOP_UNDERPARAM=True,
     STOP_OVERPARAM=False,
     WEIGHT_DECAY=0.0,
+    INIT_NORM_TARGETS=None,
     LOSS_FUNC=nn.MSELoss(),
 )
 
@@ -158,6 +168,20 @@ _BELKIN_REUSE_NORMALIZED = {**_BELKIN, "NORMALIZE_REUSED_WEIGHTS": True}
 # strong bounds the useful range, and a scan that only goes up to the value
 # that happens to work can't show that. Widen or trim this dict to change the
 # scan -- adding an entry adds a preset, no other file needs to know.
+# init_weight_norm per H from the completed `belkin` run
+# (results/full_sweep_summary_belkin.csv, mean over seeds 0-4).
+BELKIN_INIT_NORMS = {
+    4: 3.7255, 5: 5.3394, 8: 7.8098, 12: 10.2628, 18: 12.9719, 24: 15.1451,
+    28: 16.5612, 30: 17.3998, 32: 18.1836, 35: 19.1374, 38: 20.0319,
+    40: 20.6831, 45: 21.8462, 48: 22.5907, 50: 23.1421, 52: 10.7074,
+    55: 10.9365, 60: 11.3471, 70: 12.0696, 100: 13.9990, 200: 18.3858,
+    300: 21.2842, 1000: 29.9852,
+}
+
+_BELKIN_REUSE_BALANCED = {**_BELKIN, "BALANCE_INIT": True}
+
+_BELKIN_NOREUSE_RESCALED = {**_BELKIN_NOREUSE, "INIT_NORM_TARGETS": BELKIN_INIT_NORMS}
+
 WEIGHT_DECAY_ARMS = {
     "belkin_wd1e-5": 1e-5,
     "belkin_wd1e-4": 1e-4,
@@ -185,11 +209,13 @@ _CUSTOM = dict(
     REUSE_WEIGHTS_UNDERPARAM=False,
     REUSE_WEIGHTS_OVERPARAM=False,
     NORMALIZE_REUSED_WEIGHTS=False,
+    BALANCE_INIT=False,
     DECAY_UNDERPARAM=True,
     DECAY_OVERPARAM=True,
     STOP_UNDERPARAM=True,
     STOP_OVERPARAM=True,
     WEIGHT_DECAY=0.0,
+    INIT_NORM_TARGETS=None,
     LOSS_FUNC=nn.CrossEntropyLoss(),
 )
 
@@ -197,6 +223,8 @@ PRESETS = {
     "belkin": _BELKIN,
     "belkin_noreuse": _BELKIN_NOREUSE,
     "belkin_reuse_normalized": _BELKIN_REUSE_NORMALIZED,
+    "belkin_reuse_balanced": _BELKIN_REUSE_BALANCED,
+    "belkin_noreuse_rescaled": _BELKIN_NOREUSE_RESCALED,
     "custom": _CUSTOM,
     **{name: {**_BELKIN, "WEIGHT_DECAY": wd} for name, wd in WEIGHT_DECAY_ARMS.items()},
 }
@@ -216,9 +244,11 @@ SEEDS = _preset["SEEDS"]
 REUSE_WEIGHTS_UNDERPARAM = _preset["REUSE_WEIGHTS_UNDERPARAM"]
 REUSE_WEIGHTS_OVERPARAM = _preset["REUSE_WEIGHTS_OVERPARAM"]
 NORMALIZE_REUSED_WEIGHTS = _preset["NORMALIZE_REUSED_WEIGHTS"]
+BALANCE_INIT = _preset["BALANCE_INIT"]
 DECAY_UNDERPARAM = _preset["DECAY_UNDERPARAM"]
 DECAY_OVERPARAM = _preset["DECAY_OVERPARAM"]
 STOP_UNDERPARAM = _preset["STOP_UNDERPARAM"]
 STOP_OVERPARAM = _preset["STOP_OVERPARAM"]
 WEIGHT_DECAY = _preset["WEIGHT_DECAY"]
+INIT_NORM_TARGETS = _preset["INIT_NORM_TARGETS"]
 LOSS_FUNC = _preset["LOSS_FUNC"]
