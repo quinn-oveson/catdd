@@ -1,7 +1,8 @@
 import torch.nn as nn
 import torch
 from config import LR, MOMENTUM, MAX_EPOCHS, DECAY_INTERVAL, GAMMA, EARLY_STOP_CHECK_INTERVAL, LOSS_FUNC, BATCH_SIZE
-from sweep_config import DECAY_UNDERPARAM, DECAY_OVERPARAM, STOP_UNDERPARAM, STOP_OVERPARAM
+from sweep_config import (DECAY_UNDERPARAM, DECAY_OVERPARAM, STOP_UNDERPARAM,
+                          STOP_OVERPARAM, WEIGHT_DECAY)
 
 
 def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=False):
@@ -17,9 +18,16 @@ def run_epoch(model, X, y_onehot, y_labels, criterion, optimizer, compute_error=
             train_error = (preds != y_labels).float().mean()
     return loss.detach(), train_error
 
-def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=BATCH_SIZE, loss_func=LOSS_FUNC):
+def train_model(model, X, y_onehot, y_labels, is_underparam, lr=LR, batch_size=BATCH_SIZE,
+                loss_func=LOSS_FUNC, weight_decay=WEIGHT_DECAY):
     criterion = loss_func
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=MOMENTUM)
+    # weight_decay defaults to the current $CATDD_SWEEP preset's value (0.0 for
+    # every preset except the belkin_wd* arms), so callers that don't care --
+    # probe.py, sweep.py -- are unaffected. SGD's weight_decay is the COUPLED
+    # L2 form (the penalty is added to the gradient and so flows through
+    # momentum), not AdamW-style decoupled decay.
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=MOMENTUM,
+                                 weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=DECAY_INTERVAL, gamma=GAMMA)
     losses = torch.empty(MAX_EPOCHS, device=X.device)
     n_epochs_run = MAX_EPOCHS

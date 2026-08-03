@@ -32,12 +32,7 @@ def reuse_weights(small_model, big_model, H1):
         big_model.output.bias[:] = small_model.output.bias
 
 def glorot_target_norm(weight):
-    """Expected Frobenius norm of a fresh xavier_uniform_ draw for this shape.
-
-    xavier_uniform_ draws U(-a, a) with a = sqrt(6/(fan_in+fan_out)), so each
-    entry has variance a^2/3 = 2/(fan_in+fan_out). Used analytically rather
-    than by sampling a reference model: deterministic, and with this many
-    entries the sampling error is well under a percent anyway."""
+    """Expected Frobenius norm of a fresh xavier_uniform_ draw for this shape."""
     fan_out, fan_in = weight.shape
     return (weight.numel() * 2.0 / (fan_in + fan_out)) ** 0.5
 

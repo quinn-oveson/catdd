@@ -50,9 +50,24 @@ Presets:
                   separates "large norm" from "reused directions": if the
                   spike vanishes here, norm was the cause; if it survives,
                   norm was only a correlate of whatever else reuse carries.
+  belkin_wd<v>    Identical to `belkin` -- reuse on, weights untouched -- except
+                  SGD carries a WEIGHT_DECAY of <v> (see WEIGHT_DECAY_ARMS
+                  below for the values actually registered). Tests whether
+                  penalizing the norm throughout training, rather than only
+                  rescaling it once at init the way
+                  `belkin_reuse_normalized` does, improves generalization.
+                  Note the decay COMPOUNDS along the reuse chain: the shrunken
+                  model trained at one H is the one reused into the next, so
+                  this suppresses the chain's norm growth cumulatively rather
+                  than per-model.
   custom          Exploratory sweeps beyond Belkin's own setup (currently the
                   cross-entropy lr x batch_size grid search). Edit freely --
                   this is the one preset meant to be changed in place.
+
+Note on the two unrelated things called "decay": DECAY_UNDERPARAM/
+DECAY_OVERPARAM are the LEARNING-RATE schedule (config.DECAY_INTERVAL /
+config.GAMMA), and have nothing to do with WEIGHT_DECAY, which is SGD's L2
+penalty on the parameters. A preset can have either, both or neither.
 """
 import os
 
@@ -70,6 +85,9 @@ BELKIN_BATCH_SIZE = 32
 #   DECAY_*          step the LR scheduler (config.DECAY_INTERVAL / config.GAMMA)
 #   STOP_*           stop early once train classification error hits 0 (checked
 #                    every config.EARLY_STOP_CHECK_INTERVAL epochs)
+# WEIGHT_DECAY is NOT split by region -- it is one scalar handed to
+# torch.optim.SGD (train.train_model), applied at every H. 0.0 disables it,
+# which is Belkin's own setup.
 # Reuse into a given H is governed by THAT H's own region flag (not the
 # previous H's) -- so if both reuse flags are True, reuse runs continuously
 # straight through the interpolation threshold; if only the overparam flag is
@@ -86,6 +104,7 @@ _BELKIN = dict(
     DECAY_OVERPARAM=False,
     STOP_UNDERPARAM=True,
     STOP_OVERPARAM=False,
+    WEIGHT_DECAY=0.0,
     LOSS_FUNC=nn.MSELoss(),
 )
 
@@ -107,6 +126,43 @@ _BELKIN_NOREUSE = {**_BELKIN, "REUSE_WEIGHTS_UNDERPARAM": False}
 # the culprit. If it SURVIVES, the spike comes from something else reuse
 # carries -- the directions / the particular basin -- and norm was a correlate.
 _BELKIN_REUSE_NORMALIZED = {**_BELKIN, "NORMALIZE_REUSED_WEIGHTS": True}
+
+# The weight-decay arms: Belkin's setup untouched -- reuse on, reused weights
+# used exactly as inherited -- with SGD's L2 penalty turned on. Where
+# `belkin_reuse_normalized` intervenes on the norm ONCE, at each H's init,
+# this penalizes it continuously through all 6000 epochs, and because each H's
+# trained (shrunken) model is what the next H reuses, the effect compounds
+# along the chain rather than acting per-model.
+#
+# One preset per value rather than a WEIGHT_DECAY_GRID axis: a new grid axis
+# would have to be threaded through decode_task_id/TOTAL_TASKS,
+# slurm_array_specs, aggregate_full_sweep's (lr, batch_size) pivot index and
+# every plot script's row lookup. A preset per value costs the same compute,
+# is submitted the same way (one array each, in parallel), and each value
+# lands in its own results/full_sweep/<name>/ and summary CSV for free.
+#
+# Values chosen against this setup's effective step size. Momentum 0.95 makes
+# the effective lr ~lr/(1-0.95) = 0.01, and a full run is 6000 epochs x
+# 4000/32 = 125 steps = 750k steps, so ignoring the data gradient the weights
+# shrink by ~exp(-7500*wd) over a run. That approximation was checked against a
+# short local run (300 full-batch steps, wd=0.01: predicted 3.0% shrink,
+# measured 2.8%), so the exponent is trustworthy as an upper bound on the
+# decay's strength -- the data gradient pushes back, so the real norm settles
+# at some equilibrium above it.
+#
+# On that scale: 1e-5 -> exp(-0.075), a light touch; 1e-4 -> exp(-0.75), the
+# interesting middle where the decay is comparable to the chain's norm growth
+# (measured under `belkin`: 3.7 at H=4 rising to 23.1 at H=50); 1e-3 ->
+# exp(-7.5), almost certainly over-regularized to the point of underfitting.
+# 1e-3 is kept deliberately as the upper bracket -- an arm that is clearly too
+# strong bounds the useful range, and a scan that only goes up to the value
+# that happens to work can't show that. Widen or trim this dict to change the
+# scan -- adding an entry adds a preset, no other file needs to know.
+WEIGHT_DECAY_ARMS = {
+    "belkin_wd1e-5": 1e-5,
+    "belkin_wd1e-4": 1e-4,
+    "belkin_wd1e-3": 1e-3,
+}
 
 # NOTE: the lr/batch-size GRIDS below belong to `custom` only. Neither Belkin
 # preset above has a grid -- both are pinned to the single (BELKIN_LR,
@@ -133,6 +189,7 @@ _CUSTOM = dict(
     DECAY_OVERPARAM=True,
     STOP_UNDERPARAM=True,
     STOP_OVERPARAM=True,
+    WEIGHT_DECAY=0.0,
     LOSS_FUNC=nn.CrossEntropyLoss(),
 )
 
@@ -141,6 +198,7 @@ PRESETS = {
     "belkin_noreuse": _BELKIN_NOREUSE,
     "belkin_reuse_normalized": _BELKIN_REUSE_NORMALIZED,
     "custom": _CUSTOM,
+    **{name: {**_BELKIN, "WEIGHT_DECAY": wd} for name, wd in WEIGHT_DECAY_ARMS.items()},
 }
 
 SWEEP_NAME = os.environ.get("CATDD_SWEEP", "custom")
@@ -162,4 +220,5 @@ DECAY_UNDERPARAM = _preset["DECAY_UNDERPARAM"]
 DECAY_OVERPARAM = _preset["DECAY_OVERPARAM"]
 STOP_UNDERPARAM = _preset["STOP_UNDERPARAM"]
 STOP_OVERPARAM = _preset["STOP_OVERPARAM"]
+WEIGHT_DECAY = _preset["WEIGHT_DECAY"]
 LOSS_FUNC = _preset["LOSS_FUNC"]
