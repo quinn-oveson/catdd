@@ -1,10 +1,12 @@
 """Recreate Belkin's Fig. 3 layout (top: zero-one loss, bottom: squared/MSE loss)
-but overlay TWO full-sweep summaries against each other, for comparing results
-from two different sweep configurations (e.g. before/after a sweep_config.py
-change) -- rather than plot_full_sweep_belkin_style.py's one-summary-vs-Belkin
-comparison.
+but overlay SEVERAL full-sweep summaries against each other, for comparing
+results from different sweep configurations (e.g. before/after a
+sweep_config.py change) -- rather than plot_full_sweep_belkin_style.py's
+one-summary-vs-Belkin comparison. Repeat --summary_path/--sweep_name once per
+sweep; colors come from SWEEP_COLORS in the order given, the same order
+plot_norm_curve.py uses, so a sweep keeps its color across both figures.
 
-Reads two summary CSVs (as produced by aggregate_full_sweep.py, from anywhere
+Reads the summary CSVs (as produced by aggregate_full_sweep.py, from anywhere
 on disk -- e.g. a renamed copy scp'd down from a prior sweep alongside the
 current results/full_sweep_summary.csv) plus optionally
 results/belkin_digitized.csv. Each sweep gets its own color, used for both its
@@ -29,13 +31,14 @@ OUT_PATH = os.path.join(RESULTS_ROOT, "full_sweep_compare_belkin_style.png")
 
 INTERPOLATION_THRESHOLD = K * N_TRAIN / 1e3  # params where num_params(H) == K*N_TRAIN
 
-# Okabe-Ito colorblind-safe pair (same palette family as plot_full_sweep_belkin_style.py's
-# blue/orange, but purple/green instead so this plot's sweep colors don't read as
-# "test vs. train" the way blue/orange does there) -- also distinct from
-# BELKIN_COLOR below so a --include_belkin=True plot never has two series
-# sharing a color.
-SWEEP1_COLOR = "#CC79A7"  # reddish purple
-SWEEP2_COLOR = "#009E73"  # bluish green
+# Okabe-Ito, assigned to sweeps in this fixed order and never cycled, so a given
+# sweep keeps its color across every figure. Checked with the dataviz validator:
+# worst adjacent CVD dE 11.0, normal-vision 25.8, all >= 3:1 on white.
+SWEEP_COLORS = ["#0072B2", "#D55E00", "#009E73"]  # blue, vermillion, bluish green
+# Paired with the colors, because these arms coincide exactly over part of the
+# H range -- a solid line drawn later would completely hide an earlier one there.
+SWEEP_LINESTYLES = ["-", "--", ":"]   # default for plot_norm_curve.py
+TEST_LINESTYLE, TRAIN_LINESTYLE = "-", "--"
 BELKIN_COLOR = "black"  # both test and train -- distinguished by marker (test='D', same as the sweeps) not color
 
 
@@ -62,32 +65,49 @@ def load_row(summary_path, lr, batch_size):
     return row_match.iloc[0], h_vals_in(summary)
 
 
-def plot_sweep(ax_top, ax_bot, row, h_vals, color, label):
+
+def taper(i, n, hi, lo):
+    """Value for series i of n, decreasing hi -> lo in draw order. These arms
+    coincide exactly over parts of the H range, so later curves are drawn
+    thinner and sit visibly on top of earlier ones."""
+    return hi if n < 2 else hi + (lo - hi) * i / (n - 1)
+
+
+def plot_sweep(ax_top, ax_bot, row, h_vals, color, label, lw):
     x = [num_params(h) / 1e3 for h in h_vals]
     ax_top.plot(x, [row[f"H{h}_test_zeroone_mean"] * 100 for h in h_vals],
-                marker="D", ms=4, color=color, label=f"{label} test")
+                marker="D", ms=4, lw=lw, color=color, linestyle=TEST_LINESTYLE, label=f"{label} test")
     ax_top.plot(x, [row[f"H{h}_train_zeroone_mean"] * 100 for h in h_vals],
-                color=color, label=f"{label} train")
+                lw=lw, color=color, linestyle=TRAIN_LINESTYLE, label=f"{label} train")
     # Our MSE is (outputs - y_onehot)**2 averaged over both N and K, but Belkin's
     # squared loss sums over the K one-hot outputs per example (only averaging
     # over N) -- so ours is 1/K of his units. Rescale by K to match (see
     # plot_full_sweep_belkin_style.py, same convention here).
     ax_bot.plot(x, [row[f"H{h}_test_MSE_mean"] * K for h in h_vals],
-                marker="D", ms=4, color=color, label=f"{label} test")
+                marker="D", ms=4, lw=lw, color=color, linestyle=TEST_LINESTYLE, label=f"{label} test")
     ax_bot.plot(x, [row[f"H{h}_train_MSE_mean"] * K for h in h_vals],
-                color=color, label=f"{label} train")
+                lw=lw, color=color, linestyle=TRAIN_LINESTYLE, label=f"{label} train")
+
+
+def parse_linestyle(s):
+    """CLI linestyle: matplotlib's own ("-", "--", ":") or a dash pattern
+    ("6,1.5" -> (0, (6, 1.5))), which the named styles can't express."""
+    if "," in s:
+        return (0, tuple(float(x) for x in s.split(",")))
+    return s
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--summary_path1", required=True, help="First summary CSV to plot.")
-    parser.add_argument("--summary_path2", required=True, help="Second summary CSV to plot.")
-    parser.add_argument("--sweep_name1", required=True, help="Legend label for the first summary.")
-    parser.add_argument("--sweep_name2", required=True, help="Legend label for the second summary.")
-    parser.add_argument("--lr1", type=float, default=0.0005, help="lr row to pull from summary_path1 (default: 0.0005).")
-    parser.add_argument("--batch_size1", type=int, default=32, help="batch_size row to pull from summary_path1 (default: 32).")
-    parser.add_argument("--lr2", type=float, default=0.0005, help="lr row to pull from summary_path2 (default: 0.0005).")
-    parser.add_argument("--batch_size2", type=int, default=32, help="batch_size row to pull from summary_path2 (default: 32).")
+    parser.add_argument("--summary_path", action="append", required=True, metavar="PATH",
+                         help="Summary CSV to plot. Repeat once per sweep, up to 3.")
+    parser.add_argument("--sweep_name", action="append", required=True, metavar="NAME",
+                         help="Legend label for the corresponding --summary_path.")
+    parser.add_argument("--lr", type=float, default=0.0005, help="lr row to pull from each summary (default: 0.0005).")
+    parser.add_argument("--batch_size", type=int, default=32,
+                         help="batch_size row to pull from each summary (default: 32; use 4000 for --full_batch runs).")
+    parser.add_argument("--color", action="append", metavar="HEX",
+                         help="Color per sweep, in order. Defaults to SWEEP_COLORS.")
     parser.add_argument("--include_belkin", type=str2bool, default=False,
                          help="Also overlay Belkin's own digitized curves (black test / red train, dashed, "
                               "stars on test). Default: False.")
@@ -97,8 +117,14 @@ def main():
                               "plus ' vs Belkin Fig. 3' if --include_belkin=True).")
     args = parser.parse_args()
 
-    row1, h_vals1 = load_row(args.summary_path1, args.lr1, args.batch_size1)
-    row2, h_vals2 = load_row(args.summary_path2, args.lr2, args.batch_size2)
+    if len(args.summary_path) != len(args.sweep_name):
+        raise SystemExit(f"got {len(args.summary_path)} --summary_path but "
+                          f"{len(args.sweep_name)} --sweep_name -- pass one name per path.")
+    colors = args.color or SWEEP_COLORS
+    if len(args.summary_path) > len(colors):
+        raise SystemExit(f"{len(args.summary_path)} summaries but only {len(colors)} colors "
+                          f"-- pass --color for each.")
+    loaded = [load_row(p, args.lr, args.batch_size) for p in args.summary_path]
 
     if args.include_belkin and not os.path.exists(BELKIN_DIGITIZED_PATH):
         raise SystemExit(f"{BELKIN_DIGITIZED_PATH} not found -- run extract_belkin_markers.py first.")
@@ -117,8 +143,9 @@ def main():
         ax_bot.plot(x_belkin, belkin["train_squared_loss"], linestyle="--",
                     color=BELKIN_COLOR, label="Belkin train")
 
-    plot_sweep(ax_top, ax_bot, row1, h_vals1, SWEEP1_COLOR, args.sweep_name1)
-    plot_sweep(ax_top, ax_bot, row2, h_vals2, SWEEP2_COLOR, args.sweep_name2)
+    n = len(loaded)
+    for i, ((row, h_vals), color, name) in enumerate(zip(loaded, colors, args.sweep_name)):
+        plot_sweep(ax_top, ax_bot, row, h_vals, color, name, taper(i, n, 2.6, 1.3))
 
     ax_top.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
     ax_top.set_ylim(bottom=0)
@@ -132,7 +159,7 @@ def main():
     ax_bot.legend(fontsize=7, ncol=2)
 
     if args.plot_title is None:
-        title = f"{args.sweep_name1} vs {args.sweep_name2}"
+        title = " vs ".join(args.sweep_name)
         if args.include_belkin:
             title += " vs Belkin Fig. 3"
         ax_top.set_title(title)

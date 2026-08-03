@@ -116,11 +116,13 @@ def min_achievable_norm(model):
         q = model.output.weight.norm(dim=0)
         return torch.sqrt(2 * (p * q).sum() + (model.output.bias**2).sum()).item()
 
-def rescale_to_norm(model, target):
+def rescale_to_norm(model, target, output_heavy=False, tol=0.05):
     """
     Scale a 1-hidden-layer ReLU MLP to a total weight norm of `target` without
-    changing the function it computes. Of the two solutions, takes the
-    hidden-heavy one. Raises if `target` is below min_achievable_norm(model).
+    changing the function it computes. The two solutions put the norm in the
+    hidden layer (default) or the output layer -- same function, same total
+    norm. A `target` under min_achievable_norm(model) is clamped to it when it
+    is within `tol` (relative), and raises otherwise.
     """
     balance_mlp(model)   # canonical gauge, so the result depends only on the function
     with torch.no_grad():
@@ -130,9 +132,17 @@ def rescale_to_norm(model, target):
 
         disc = (target**2 - C)**2 - 4 * A * B
         if disc < 0:
-            raise ValueError(f"target norm {target:.4f} is below the minimum "
-                             f"achievable {min_achievable_norm(model):.4f}")
-        t = torch.sqrt(((target**2 - C) + torch.sqrt(disc)) / (2 * A))
+            # balance_mlp already put the model at the floor, so that IS the
+            # closest reachable norm -- nothing left to do but report it.
+            floor = min_achievable_norm(model)
+            if target < floor * (1 - tol):
+                raise ValueError(f"target norm {target:.4f} is below the minimum "
+                                 f"achievable {floor:.4f}")
+            print(f"  note: target norm {target:.4f} unreachable, clamped to the "
+                  f"floor {floor:.4f} ({100*(floor/target-1):+.2f}%)", flush=True)
+            return
+        root = -1.0 if output_heavy else 1.0
+        t = torch.sqrt(((target**2 - C) + root * torch.sqrt(disc)) / (2 * A))
 
         model.hidden.weight.mul_(t)
         model.hidden.bias.mul_(t)

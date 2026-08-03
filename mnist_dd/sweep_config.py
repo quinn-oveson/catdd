@@ -58,6 +58,11 @@ Presets:
                   `belkin_noreuse` with every init rescaled, without changing
                   the function it computes, to the norm `belkin` measured at
                   that H (utils.rescale_to_norm, BELKIN_INIT_NORMS below).
+  belkin_noreuse_rescaled_output_heavy
+                  `belkin_noreuse_rescaled` taking the other root -- the norm
+                  goes into the output layer instead of the hidden one. Same
+                  function and same total norm as that preset, so the pair
+                  separates total norm from how it is split.
   belkin_wd<v>    Identical to `belkin` -- reuse on, weights untouched -- except
                   SGD carries a WEIGHT_DECAY of <v> (see WEIGHT_DECAY_ARMS
                   below for the values actually registered). Tests whether
@@ -115,6 +120,7 @@ _BELKIN = dict(
     STOP_OVERPARAM=False,
     WEIGHT_DECAY=0.0,
     INIT_NORM_TARGETS=None,
+    RESCALE_OUTPUT_HEAVY=False,
     LOSS_FUNC=nn.MSELoss(),
 )
 
@@ -182,8 +188,12 @@ _BELKIN_REUSE_BALANCED = {**_BELKIN, "BALANCE_INIT": True}
 
 _BELKIN_NOREUSE_RESCALED = {**_BELKIN_NOREUSE, "INIT_NORM_TARGETS": BELKIN_INIT_NORMS}
 
+_BELKIN_NOREUSE_RESCALED_OUTPUT_HEAVY = {**_BELKIN_NOREUSE_RESCALED,
+                                         "RESCALE_OUTPUT_HEAVY": True}
+
 WEIGHT_DECAY_ARMS = {
     "belkin_wd1e-5": 1e-5,
+    "belkin_wd3e-5": 3.16e-5,   # geometric midpoint of 1e-5 and 1e-4
     "belkin_wd1e-4": 1e-4,
     "belkin_wd1e-3": 1e-3,
 }
@@ -216,6 +226,7 @@ _CUSTOM = dict(
     STOP_OVERPARAM=True,
     WEIGHT_DECAY=0.0,
     INIT_NORM_TARGETS=None,
+    RESCALE_OUTPUT_HEAVY=False,
     LOSS_FUNC=nn.CrossEntropyLoss(),
 )
 
@@ -225,6 +236,7 @@ PRESETS = {
     "belkin_reuse_normalized": _BELKIN_REUSE_NORMALIZED,
     "belkin_reuse_balanced": _BELKIN_REUSE_BALANCED,
     "belkin_noreuse_rescaled": _BELKIN_NOREUSE_RESCALED,
+    "belkin_noreuse_rescaled_output_heavy": _BELKIN_NOREUSE_RESCALED_OUTPUT_HEAVY,
     "custom": _CUSTOM,
     **{name: {**_BELKIN, "WEIGHT_DECAY": wd} for name, wd in WEIGHT_DECAY_ARMS.items()},
 }
@@ -251,4 +263,5 @@ STOP_UNDERPARAM = _preset["STOP_UNDERPARAM"]
 STOP_OVERPARAM = _preset["STOP_OVERPARAM"]
 WEIGHT_DECAY = _preset["WEIGHT_DECAY"]
 INIT_NORM_TARGETS = _preset["INIT_NORM_TARGETS"]
+RESCALE_OUTPUT_HEAVY = _preset["RESCALE_OUTPUT_HEAVY"]
 LOSS_FUNC = _preset["LOSS_FUNC"]

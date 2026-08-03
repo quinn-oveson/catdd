@@ -54,6 +54,7 @@ with:
 """
 import argparse
 import os
+import sys
 import time
 from collections import namedtuple
 
@@ -64,7 +65,7 @@ from config import N_TRAIN, K, H_VALS
 from sweep_config import (SWEEP_NAME, LR_GRID, BATCH_SIZE_GRID, SEEDS,
                           REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM,
                           NORMALIZE_REUSED_WEIGHTS, BALANCE_INIT,
-                          INIT_NORM_TARGETS, LOSS_FUNC)
+                          INIT_NORM_TARGETS, RESCALE_OUTPUT_HEAVY, LOSS_FUNC)
 from data import load_mnist_subset, onehot
 from mlp import MLP
 from train import train_model, evaluate
@@ -223,7 +224,8 @@ def run_full_task(task_id, output_dir=RESULTS_DIR, full_batch=False):
         if BALANCE_INIT:
             balance_mlp(model)
         if INIT_NORM_TARGETS is not None:
-            rescale_to_norm(model, INIT_NORM_TARGETS[H])
+            rescale_to_norm(model, INIT_NORM_TARGETS[H],
+                            output_heavy=RESCALE_OUTPUT_HEAVY)
 
         # Before the first SGD step: with weight reuse this carries the
         # previous (trained, larger-norm) model's weights, without it it's
@@ -297,3 +299,10 @@ if __name__ == "__main__":
         print(f"[{SWEEP_NAME}] task_id={args.task_id}: kind={kind}, lr={lr}, batch_size={batch_size}, seed={seed}, H_list={spec.H_list}", flush=True)
         out_path = run_full_task(args.task_id, args.output_dir, full_batch=args.full_batch)
         print(f"Wrote {out_path}")
+
+        # Skip interpreter shutdown: observed 2026-08-03 on m13h/m13l, tasks
+        # wrote their CSV then hung in CUDA teardown, holding a GPU until the
+        # wall clock killed them. The file is already on disk here.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
