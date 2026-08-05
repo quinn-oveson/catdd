@@ -108,6 +108,11 @@ def main():
                          help="batch_size row to pull from each summary (default: 32; use 4000 for --full_batch runs).")
     parser.add_argument("--color", action="append", metavar="HEX",
                          help="Color per sweep, in order. Defaults to SWEEP_COLORS.")
+    parser.add_argument("--ylim_zeroone", type=float, default=None,
+                         help="Fix the top panel's upper limit. Use when two figures are meant "
+                              "to be compared side by side, so the axes don't rescale between them.")
+    parser.add_argument("--ylim_squared", type=float, default=None,
+                         help="Fix the bottom panel's upper limit (see --ylim_zeroone).")
     parser.add_argument("--include_belkin", type=str2bool, default=False,
                          help="Also overlay Belkin's own digitized curves (black test / red train, dashed, "
                               "stars on test). Default: False.")
@@ -148,12 +153,12 @@ def main():
         plot_sweep(ax_top, ax_bot, row, h_vals, color, name, taper(i, n, 2.6, 1.3))
 
     ax_top.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
-    ax_top.set_ylim(bottom=0)
+    ax_top.set_ylim(0, args.ylim_zeroone)
     ax_top.set_ylabel("Zero-one loss (%)")
     ax_top.legend(fontsize=7, ncol=2)
 
     ax_bot.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
-    ax_bot.set_ylim(bottom=0)
+    ax_bot.set_ylim(0, args.ylim_squared)
     ax_bot.set_ylabel("Squared loss")
     ax_bot.set_xlabel(r"Number of parameters/weights ($\times10^3$)")
     ax_bot.legend(fontsize=7, ncol=2)

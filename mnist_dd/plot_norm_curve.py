@@ -84,8 +84,9 @@ def main():
     parser.add_argument("--linestyle", action="append", metavar="STYLE",
                          help="Linestyle per sweep, in order (see parse_linestyle). "
                               "Defaults to SWEEP_LINESTYLES.")
-    parser.add_argument("--norm_metric", choices=list(YLABEL), default="init_weight_norm",
-                         help="Which recorded norm to plot (default: init_weight_norm).")
+    parser.add_argument("--norm_metric", choices=list(YLABEL), action="append",
+                         help="Which recorded norm to plot (default: init_weight_norm). "
+                              "Repeat to stack one panel per metric on a shared x axis.")
     parser.add_argument("--lr", type=float, default=0.0005, help="lr row to pull (default: 0.0005).")
     parser.add_argument("--batch_size", type=int, default=32,
                          help="batch_size row to pull (default: 32; use 4000 for --full_batch runs).")
@@ -109,46 +110,50 @@ def main():
         raise SystemExit(f"{len(args.summary_path)} summaries but only {len(colors)} colors / "
                           f"{len(styles)} linestyles -- pass --color/--linestyle for each.")
 
-    fig, ax = plt.subplots(figsize=(10, 5.5))
+    metrics = args.norm_metric or ["init_weight_norm"]
+    fig, axes = plt.subplots(len(metrics), 1, figsize=(10, 5.5 * len(metrics)),
+                             sharex=True, squeeze=False)
+    axes = [a[0] for a in axes]
 
     n = len(args.summary_path)
-    for i, (path, name, color, ls) in enumerate(zip(args.summary_path, args.sweep_name,
-                                                    colors, styles)):
-        row, h_vals = load_row(path, args.lr, args.batch_size, args.norm_metric)
-        x = [num_params(h) / 1e3 for h in h_vals]
-        mean = [row[f"H{h}_{args.norm_metric}_mean"] for h in h_vals]
-        lw = taper(i, n, 2.8, 1.4)
-        fx = [pe.Stroke(linewidth=lw + 1.6, foreground="#3a3a3a"), pe.Normal()] if args.stroke else None
-        ax.plot(x, mean, marker="D", ms=taper(i, n, 6.5, 3.5), lw=lw,
-                color=color, linestyle=ls, label=name, path_effects=fx,
-                markeredgecolor="#3a3a3a" if args.stroke else color,
-                markeredgewidth=0.7 if args.stroke else 0)
-        if args.std_band:
-            std = [row.get(f"H{h}_{args.norm_metric}_std", 0) for h in h_vals]
-            ax.fill_between(x, [m - s for m, s in zip(mean, std)],
-                             [m + s for m, s in zip(mean, std)], color=color, alpha=0.15, lw=0)
+    for ax, metric in zip(axes, metrics):
+        for i, (path, name, color, ls) in enumerate(zip(args.summary_path, args.sweep_name,
+                                                        colors, styles)):
+            row, h_vals = load_row(path, args.lr, args.batch_size, metric)
+            x = [num_params(h) / 1e3 for h in h_vals]
+            mean = [row[f"H{h}_{metric}_mean"] for h in h_vals]
+            lw = taper(i, n, 2.8, 1.4)
+            fx = [pe.Stroke(linewidth=lw + 1.6, foreground="#3a3a3a"), pe.Normal()] if args.stroke else None
+            ax.plot(x, mean, marker="D", ms=taper(i, n, 6.5, 3.5), lw=lw,
+                    color=color, linestyle=ls, label=name, path_effects=fx,
+                    markeredgecolor="#3a3a3a" if args.stroke else color,
+                    markeredgewidth=0.7 if args.stroke else 0)
+            if args.std_band:
+                std = [row.get(f"H{h}_{metric}_std", 0) for h in h_vals]
+                ax.fill_between(x, [m - s for m, s in zip(mean, std)],
+                                 [m + s for m, s in zip(mean, std)], color=color, alpha=0.15, lw=0)
 
-    ax.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
-    if args.log_norm:
-        ax.set_yscale("log")
-    else:
-        ax.set_ylim(bottom=0)
-    ax.set_ylabel(YLABEL[args.norm_metric])
-    ax.set_xlabel(r"Number of parameters/weights ($\times10^3$)")
-    ax.set_title(args.plot_title if args.plot_title else YLABEL[args.norm_metric])
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.2, lw=0.6)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
+        ax.axvline(INTERPOLATION_THRESHOLD, color="black", linestyle=":", alpha=0.5)
+        if args.log_norm:
+            ax.set_yscale("log")
+        else:
+            ax.set_ylim(bottom=0)
+        ax.set_ylabel(YLABEL[metric])
+        ax.grid(alpha=0.2, lw=0.6)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
 
-    ax.set_xscale("log")
-    ax.set_xticks([3, 10, 40, 100, 300, 800])
-    ax.xaxis.set_major_formatter(ScalarFormatter())
-    ax.ticklabel_format(style="plain", axis="x")
+    axes[0].legend(fontsize=8)
+    axes[0].set_title(args.plot_title if args.plot_title else YLABEL[metrics[0]])
+    axes[-1].set_xlabel(r"Number of parameters/weights ($\times10^3$)")
+    axes[-1].set_xscale("log")
+    axes[-1].set_xticks([3, 10, 40, 100, 300, 800])
+    axes[-1].xaxis.set_major_formatter(ScalarFormatter())
+    axes[-1].ticklabel_format(style="plain", axis="x")
 
     out_path = args.out_path or os.path.join(
-        RESULTS_ROOT, f"full_sweep_{args.norm_metric}_curve.png")
+        RESULTS_ROOT, f"full_sweep_{'_'.join(metrics)}_curve.png")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     print(f"Wrote {out_path}")

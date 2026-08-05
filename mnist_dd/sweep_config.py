@@ -63,6 +63,10 @@ Presets:
                   goes into the output layer instead of the hidden one. Same
                   function and same total norm as that preset, so the pair
                   separates total norm from how it is split.
+  belkin_noreuse_wd1e-4
+                  `belkin_noreuse` with SGD carrying WEIGHT_DECAY=1e-4. Paired
+                  with `belkin_wd1e-4` it separates weight decay's effect as a
+                  plain regularizer from its effect on the reuse chain.
   belkin_wd<v>    Identical to `belkin` -- reuse on, weights untouched -- except
                   SGD carries a WEIGHT_DECAY of <v> (see WEIGHT_DECAY_ARMS
                   below for the values actually registered). Tests whether
@@ -191,6 +195,8 @@ _BELKIN_NOREUSE_RESCALED = {**_BELKIN_NOREUSE, "INIT_NORM_TARGETS": BELKIN_INIT_
 _BELKIN_NOREUSE_RESCALED_OUTPUT_HEAVY = {**_BELKIN_NOREUSE_RESCALED,
                                          "RESCALE_OUTPUT_HEAVY": True}
 
+_BELKIN_NOREUSE_WD1E4 = {**_BELKIN_NOREUSE, "WEIGHT_DECAY": 1e-4}
+
 WEIGHT_DECAY_ARMS = {
     "belkin_wd1e-5": 1e-5,
     "belkin_wd3e-5": 3.16e-5,   # geometric midpoint of 1e-5 and 1e-4
@@ -237,6 +243,7 @@ PRESETS = {
     "belkin_reuse_balanced": _BELKIN_REUSE_BALANCED,
     "belkin_noreuse_rescaled": _BELKIN_NOREUSE_RESCALED,
     "belkin_noreuse_rescaled_output_heavy": _BELKIN_NOREUSE_RESCALED_OUTPUT_HEAVY,
+    "belkin_noreuse_wd1e-4": _BELKIN_NOREUSE_WD1E4,
     "custom": _CUSTOM,
     **{name: {**_BELKIN, "WEIGHT_DECAY": wd} for name, wd in WEIGHT_DECAY_ARMS.items()},
 }
