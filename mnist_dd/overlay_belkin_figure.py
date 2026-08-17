@@ -22,7 +22,8 @@ from PIL import Image
 # Summaries are per sweep preset (see sweep_config.py) -- default to whichever
 # one $CATDD_SWEEP names, i.e. the one aggregate_full_sweep.py just wrote.
 from aggregate_full_sweep import SUMMARY_PATH as DEFAULT_SUMMARY_PATH
-from config import H_VALS, K
+from config import K
+from sweep_config import H_VALS
 from utils import num_params
 
 CALIBRATION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results", "belkin_calibration.json")

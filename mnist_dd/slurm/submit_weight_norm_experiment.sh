@@ -25,12 +25,17 @@
 #   CATDD_SWEEP=belkin python full_sweep.py --print_array_specs
 #
 # Optional environment variables:
-#   EXCLUDE_NODES   passed through as --exclude=. Empty by default. Node
-#                   m13l-2-2 had an uncorrectable ECC fault during the July
-#                   2026 run (tasks failed there in ~30s while succeeding
-#                   everywhere else) and that --exclude was never committed --
-#                   so if you see that signature again:
-#                     EXCLUDE_NODES=m13l-2-2 ./slurm/submit_weight_norm_experiment.sh
+#   EXCLUDE_NODES   passed through as --exclude=. Empty by default, and that is
+#                   the right default now -- m13l-2-2's uncorrectable ECC fault
+#                   (tasks failing there in ~30s while succeeding everywhere
+#                   else, July 2026) was reported to FSL staff and fixed
+#                   2026-08-03, so do NOT exclude it out of habit. Kept for the
+#                   general case: a node failing fast while its siblings succeed
+#                   is worth reporting, and worth routing around meanwhile:
+#                     EXCLUDE_NODES=<node> ./slurm/submit_weight_norm_experiment.sh
+#                   GPU model is NOT what this is for -- full_sweep_array.sbatch
+#                   pins --partition=m13h,m13l to stay off the slow P100s, and
+#                   these submissions inherit that.
 
 set -euo pipefail
 

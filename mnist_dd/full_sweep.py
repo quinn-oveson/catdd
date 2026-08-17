@@ -61,8 +61,10 @@ from collections import namedtuple
 import pandas as pd
 import torch
 
-from config import N_TRAIN, K, H_VALS
-from sweep_config import (SWEEP_NAME, LR_GRID, BATCH_SIZE_GRID, SEEDS,
+from config import N_TRAIN, K
+# H_VALS comes from the preset, not config: the belkin_h_* arms resample the
+# widths themselves (see sweep_config.py).
+from sweep_config import (SWEEP_NAME, H_VALS, LR_GRID, BATCH_SIZE_GRID, SEEDS,
                           REUSE_WEIGHTS_UNDERPARAM, REUSE_WEIGHTS_OVERPARAM,
                           NORMALIZE_REUSED_WEIGHTS, BALANCE_INIT,
                           INIT_NORM_TARGETS, RESCALE_OUTPUT_HEAVY, LOSS_FUNC)

@@ -2,7 +2,7 @@
 full_sweep.py, and how weight-reuse / LR-decay / early-stopping behave in the
 underparameterized vs. overparameterized regions (consumed by train.py,
 full_sweep.py, probe.py, sweep.py). Kept separate from config.py, which holds
-physical/model constants (D, K, N_TRAIN, H_VALS, LR, MAX_EPOCHS, ...)
+physical/model constants (D, K, N_TRAIN, LR, MAX_EPOCHS, ...)
 describing the MLP/MNIST problem itself rather than how we search over or
 parallelize training runs.
 
@@ -63,6 +63,17 @@ Presets:
                   goes into the output layer instead of the hidden one. Same
                   function and same total norm as that preset, so the pair
                   separates total norm from how it is split.
+  belkin_h_even   `belkin` in every respect except H_VALS: the 15
+                  underparameterized widths are evenly spaced from 4 to 50
+                  instead of bunching up near the interpolation threshold the
+                  way Belkin's do. Same count, same endpoints, same
+                  overparameterized tail, so the reuse chain is the same
+                  length -- only the sampling density moves.
+  belkin_h_early  Same idea, density moved the other way: the widths cluster
+                  between 20 and 30 and thin out approaching 50. Paired with
+                  `belkin_h_even` and `belkin` these three sample the same
+                  underlying curve three ways, showing how much of the spike's
+                  shape is the curve and how much is where we sampled it.
   belkin_noreuse_wd1e-4
                   `belkin_noreuse` with SGD carrying WEIGHT_DECAY=1e-4. Paired
                   with `belkin_wd1e-4` it separates weight decay's effect as a
@@ -90,6 +101,8 @@ import os
 
 import torch.nn as nn
 
+from config import H_VALS as DEFAULT_H_VALS
+
 # Stage 1 probe's best-fit (lr, batch_size) candidate against Belkin's Fig 3
 # (see results/probe_summary.csv / results/probe_vs_belkin.png).
 BELKIN_LR = 0.0005
@@ -111,6 +124,7 @@ BELKIN_BATCH_SIZE = 32
 # True, the first overparam H still reuses from whatever model came right
 # before it, even if that was an independently-trained underparam H.
 _BELKIN = dict(
+    H_VALS=DEFAULT_H_VALS,
     LR_GRID=[BELKIN_LR],
     BATCH_SIZE_GRID=[BELKIN_BATCH_SIZE],
     SEEDS=list(range(5)),  # Belkin averages over 5 trials
@@ -219,6 +233,7 @@ WEIGHT_DECAY_ARMS = {
 # (train.py/full_sweep.py/probe.py) work as CrossEntropyLoss's soft-label
 # target as-is.
 _CUSTOM = dict(
+    H_VALS=DEFAULT_H_VALS,
     LR_GRID=[0.0005, 0.001, 0.005, 0.01, 0.05],
     BATCH_SIZE_GRID=[32, 64, 128, 256, 400, 800],
     SEEDS=list(range(5)),
@@ -236,6 +251,34 @@ _CUSTOM = dict(
     LOSS_FUNC=nn.CrossEntropyLoss(),
 )
 
+# The H-spacing arms. Belkin's own grid samples the underparameterized side
+# unevenly -- the points bunch up as they approach the interpolation threshold
+# (spacing 5,3,2 over 40,45,48,50 against 4,6,6 over 8,12,18,24), which is
+# also where the spike lives, so how sharp the spike LOOKS is partly a
+# property of the sampling and not only of the curve. These two arms resample
+# that side and leave everything else alone.
+#
+# Both hold constant everything the reuse chain is sensitive to: 15
+# underparameterized H values (so the chain is the same length, i.e. the same
+# number of reuse steps), the same endpoints (4 and 50, the last H below
+# num_params = K*N_TRAIN), and the same overparameterized tail, which is
+# trained from fresh inits under `belkin` anyway. Only WHERE the intermediate
+# points land changes.
+_BELKIN_H_OVERPARAM = [52, 55, 60, 70, 100, 200, 300, 1000]
+
+# Evenly spaced from 4 to 50 (rounded linspace, so spacing is 3 or 4
+# throughout). num_params is linear in H, so even in H is also even along the
+# parameter-count x-axis.
+_H_EVEN = [4, 7, 11, 14, 17, 20, 24, 27, 30, 34, 37, 40, 43, 47, 50]
+
+# Density moved off the threshold and onto 20-30: spacing 2 through that band,
+# 4 everywhere else, so the region right before H=50 is sampled at Belkin's
+# COARSEST rate instead of its finest.
+_H_EARLY = [4, 8, 12, 16, 20, 22, 24, 26, 28, 30, 34, 38, 42, 46, 50]
+
+_BELKIN_H_EVEN = {**_BELKIN, "H_VALS": _H_EVEN + _BELKIN_H_OVERPARAM}
+_BELKIN_H_EARLY = {**_BELKIN, "H_VALS": _H_EARLY + _BELKIN_H_OVERPARAM}
+
 PRESETS = {
     "belkin": _BELKIN,
     "belkin_noreuse": _BELKIN_NOREUSE,
@@ -244,6 +287,8 @@ PRESETS = {
     "belkin_noreuse_rescaled": _BELKIN_NOREUSE_RESCALED,
     "belkin_noreuse_rescaled_output_heavy": _BELKIN_NOREUSE_RESCALED_OUTPUT_HEAVY,
     "belkin_noreuse_wd1e-4": _BELKIN_NOREUSE_WD1E4,
+    "belkin_h_even": _BELKIN_H_EVEN,
+    "belkin_h_early": _BELKIN_H_EARLY,
     "custom": _CUSTOM,
     **{name: {**_BELKIN, "WEIGHT_DECAY": wd} for name, wd in WEIGHT_DECAY_ARMS.items()},
 }
@@ -257,6 +302,7 @@ if SWEEP_NAME not in PRESETS:
 
 _preset = PRESETS[SWEEP_NAME]
 
+H_VALS = _preset["H_VALS"]
 LR_GRID = _preset["LR_GRID"]
 BATCH_SIZE_GRID = _preset["BATCH_SIZE_GRID"]
 SEEDS = _preset["SEEDS"]

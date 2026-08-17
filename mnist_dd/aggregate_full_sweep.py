@@ -5,7 +5,7 @@ $CATDD_SWEEP (results/full_sweep/<preset>/, see sweep_config.py) and pivots to
 one row per (lr, batch_size), with the mean and std (across seeds) of every
 recorded per-H quantity, writing results/full_sweep_summary_<preset>.csv.
 
-Aggregated at each H in config.H_VALS:
+Aggregated at each H in the preset's H_VALS:
   - all 4 error curves -- train/test zero-one loss and train/test squared loss
     (MSE) -- matching Belkin's Fig. 3, which plots both Test and Train for both
     loss types. overlay_belkin_figure.py only needs the test_* columns, but the
@@ -33,9 +33,8 @@ import os
 import pandas as pd
 import torch.nn as nn
 
-from config import H_VALS
 from full_sweep import RESULTS_DIR, RESULTS_ROOT
-from sweep_config import SWEEP_NAME, LOSS_FUNC
+from sweep_config import SWEEP_NAME, H_VALS, LOSS_FUNC
 
 SUMMARY_PATH = os.path.join(RESULTS_ROOT, f"full_sweep_summary_{SWEEP_NAME}.csv")
 

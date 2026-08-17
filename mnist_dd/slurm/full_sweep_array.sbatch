@@ -47,7 +47,11 @@
 # segment inside one long-lived process without resetting CUDA's peak-memory
 # tracking between them, so a longer segment's peak allocation reflects the
 # accumulated models/optimizer state, not just the largest single model.
-# Measured on BYU FSL, three tiers (see full_sweep.resource_tier()):
+# Measured on BYU FSL before --partition was pinned below, so the walltimes
+# reflect whatever mix of hardware those runs happened to land on -- confirm
+# against your own with `sacct -X -j <arrayjobid> --format=JobID,NodeList,Elapsed`
+# rather than assuming they were measured on the GPU you are about to use.
+# Three tiers (see full_sweep.resource_tier()):
 #   - 1-H segment (independent):        ~4G,  ~1h  (generous)
 #   - partial chain (today's 15-H one): ~16G, ~6h  (generous)
 #   - full chain (all len(H_VALS)):     ~32G, ~12h (safe)
@@ -99,6 +103,20 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus=1
+#SBATCH --partition=m13h,m13l     # Steer OFF marylou9g's P100s. Without this SLURM
+                                   # auto-allocates from whatever is free, and m9g
+                                   # (40 nodes x 4 P100 = 160 GPUs) is by far the
+                                   # biggest pool, so that is where most tasks land --
+                                   # Pascal is dramatically slower here than the
+                                   # alternatives, and the tier walltimes below leave
+                                   # little margin for it. m13h = 32x H200,
+                                   # m13l = 16x L40S; the cu12 env is verified working
+                                   # on both. Trade-off: 48 GPUs instead of 160, so
+                                   # tasks spend longer PD before starting -- widen
+                                   # with --partition=m9g,m13h,m13l at submission if
+                                   # you would rather start now and run slow.
+                                   # NEVER add mgh: those nodes are ARM and the
+                                   # x86_64 mamba env's PyTorch will not run there.
 #SBATCH --array=0-44          # PLACEHOLDER, always override with --array= at
                                # submission time -- 45 is only the CATDD_SWEEP=belkin
                                # task count (1 lr x 1 batch_size x 5 seeds x 9
@@ -199,6 +217,8 @@ python full_sweep.py --task_id "$SLURM_ARRAY_TASK_ID"
 #    a few more tasks of each tier (e.g. --array=1,2,3,4 and
 #    --array=16,24,32,40) to confirm consistency across different seed/H
 #    combinations before committing to the full arrays.
+#    Both inherit --partition=m13h,m13l from the directive above -- no need to
+#    pass it, but expect PD time before they start (48 GPUs, not 160).
 # 3. Submit one array PER TIER, largest/most expensive tier first at normal
 #    priority, smaller tiers after with a higher --nice so they're explicitly
 #    deprioritized whenever multiple are competing for the same limited
